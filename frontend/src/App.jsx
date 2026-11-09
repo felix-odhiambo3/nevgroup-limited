@@ -10,9 +10,9 @@ import { AuthProvider, useAuth } from './features/auth/AuthContext'
 
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
+import StaffPage from './pages/StaffPage'
 import MainLayout from './components/layout/MainLayout'
 
-// Protect authenticated application routes
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
 
@@ -33,14 +33,11 @@ function ProtectedRoute({ children }) {
   return user ? children : <Navigate to="/login" replace />
 }
 
-// Application routes
 function AppRoutes() {
   return (
     <Routes>
-      {/* Public login page */}
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Protected application layout */}
       <Route
         element={
           <ProtectedRoute>
@@ -49,18 +46,16 @@ function AppRoutes() {
         }
       >
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/staff" element={<StaffPage />} />
       </Route>
 
-      {/* Default route */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-      {/* Unknown routes */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }
 
-// Root application
 export default function App() {
   return (
     <BrowserRouter>
