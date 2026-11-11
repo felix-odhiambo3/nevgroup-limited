@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './features/auth/AuthContext'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import StaffPage from './pages/StaffPage'
+import AttendancePage from './pages/AttendancePage'
 import MainLayout from './components/layout/MainLayout'
 
 function ProtectedRoute({ children }) {
@@ -47,6 +48,7 @@ function AppRoutes() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/staff" element={<StaffPage />} />
+        <Route path="/attendance" element={<AttendancePage />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

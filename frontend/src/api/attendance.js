@@ -64,3 +64,15 @@ export const getAttendanceOverrideAudit = async (requestId) => {
     ? response.data
     : response.data.results || []
 }
+
+// Retrieve shift instances.
+// Optional filters: { branch: 1, work_date: '2026-11-10', status: 'IN_PROGRESS' }
+export const getShiftInstances = async (filters = {}) => {
+  const response = await api.get('attendance/shifts/', {
+    params: filters,
+  })
+
+  return Array.isArray(response.data)
+    ? response.data
+    : response.data.results || []
+}

@@ -11,9 +11,10 @@ export default function MainLayout() {
   const location = useLocation()
 
   const pageTitles = {
-    '/dashboard': 'Dashboard',
-    '/staff': 'Staff Management',
-  }
+   '/dashboard': 'Dashboard',
+   '/staff': 'Staff Management',
+   '/attendance': 'Attendance & Shifts',
+ }
 
   const pageTitle = pageTitles[location.pathname] || 'NEV CARWASH'
 

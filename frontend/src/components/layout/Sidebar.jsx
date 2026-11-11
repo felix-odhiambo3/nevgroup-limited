@@ -34,8 +34,9 @@ const navigation = [
         icon: Users,
       },
       {
-        name: 'Attendance & Shifts',
-        icon: ClipboardCheck,
+          name: 'Attendance & Shifts',
+          path: '/attendance',
+          icon: ClipboardCheck,
       },
       {
         name: 'Vehicle Visits',
@@ -80,20 +81,24 @@ export default function Sidebar({ isOpen = false, onClose }) {
     >
 
       {/* Brand */}
-      <div className="px-5 py-5 border-b border-slate-800 flex items-center justify-between">
+      <div className="px-5 py-5 bg-red-600 border-b border-red-700 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-lg">
-            NC
-          </div>
+          <div className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center">
+              <img
+                src="/favicon.svg"
+                alt="NEV CARWASH Logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
 
           <div>
             <h1 className="font-bold text-lg tracking-wide">
               NEV CARWASH
             </h1>
 
-            <p className="text-xs text-slate-400">
-              Management System
-            </p>
+            <p className="text-xs text-yellow font-bold">
+  Management System
+</p>
           </div>
         </div>
 
@@ -166,7 +171,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
           <Building2 size={16} />
 
           <span className="text-xs">
-            A Diamond Space Limited Branch
+            A NevGroup Branch
           </span>
         </div>
       </div>
