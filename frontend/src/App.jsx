@@ -12,6 +12,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import StaffPage from './pages/StaffPage'
 import AttendancePage from './pages/AttendancePage'
+import CheckInPage from './pages/CheckInPage'
 import MainLayout from './components/layout/MainLayout'
 
 function ProtectedRoute({ children }) {
@@ -19,10 +20,9 @@ function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
           <p className="font-semibold text-slate-700">
             Loading NEV CARWASH...
           </p>
@@ -49,10 +49,10 @@ function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/staff" element={<StaffPage />} />
         <Route path="/attendance" element={<AttendancePage />} />
+        <Route path="/check-in" element={<CheckInPage />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
