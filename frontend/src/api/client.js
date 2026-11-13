@@ -3,6 +3,11 @@ import axios from 'axios'
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api/'
 
+const clearAuthTokens = () => {
+  sessionStorage.removeItem('access_token')
+  sessionStorage.removeItem('refresh_token')
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -10,7 +15,6 @@ const api = axios.create({
   },
 })
 
-// Attach the access token to authenticated requests.
 api.interceptors.request.use((config) => {
   const accessToken = sessionStorage.getItem('access_token')
 
@@ -21,7 +25,6 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Refresh expired access tokens automatically.
 api.interceptors.response.use(
   (response) => response,
 
@@ -33,12 +36,13 @@ api.interceptors.response.use(
       originalRequest &&
       !originalRequest._retry &&
       !originalRequest.url?.includes('auth/login/') &&
-      !originalRequest.url?.includes('auth/refresh/')
+      !originalRequest.url?.includes('auth/refresh/') &&
+      !originalRequest.url?.includes('auth/logout/')
     ) {
       const refreshToken = sessionStorage.getItem('refresh_token')
 
       if (!refreshToken) {
-        sessionStorage.clear()
+        clearAuthTokens()
         window.dispatchEvent(new Event('auth:logout'))
         return Promise.reject(error)
       }
@@ -52,15 +56,21 @@ api.interceptors.response.use(
         )
 
         const newAccessToken = response.data.access
+        const newRefreshToken = response.data.refresh
 
         sessionStorage.setItem('access_token', newAccessToken)
+
+        // SimpleJWT may rotate the refresh token.
+        if (newRefreshToken) {
+          sessionStorage.setItem('refresh_token', newRefreshToken)
+        }
 
         originalRequest.headers.Authorization =
           `Bearer ${newAccessToken}`
 
         return api(originalRequest)
       } catch (refreshError) {
-        sessionStorage.clear()
+        clearAuthTokens()
         window.dispatchEvent(new Event('auth:logout'))
 
         return Promise.reject(refreshError)

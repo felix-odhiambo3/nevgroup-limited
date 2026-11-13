@@ -29,6 +29,7 @@ import {
 } from '../api/attendance'
 
 import { getStaff } from '../api/staff'
+import { getBranchStaff } from '../api/staffOperations'
 
 const getToday = () => {
   const today = new Date()
@@ -148,8 +149,10 @@ export default function AttendancePage() {
   const { user } = useAuth()
 
   const role = user?.role
+  const isSuperuser = Boolean(user?.is_superuser)
+
   const canManage =
-    user?.is_superuser ||
+    isSuperuser ||
     ['OWNER', 'ADMIN', 'SUPERVISOR'].includes(role)
 
   const [shifts, setShifts] = useState([])
@@ -187,6 +190,13 @@ export default function AttendancePage() {
     setError('')
 
     try {
+      // Supervisors must use the branch-restricted staff endpoint.
+      // Admins and Owners retain access to the full staff endpoint.
+      const staffRequest =
+        role === 'SUPERVISOR' && !isSuperuser
+          ? getBranchStaff()
+          : getStaff()
+
       const [shiftData, overrideData, staffData] = await Promise.all([
         getShiftInstances(
           dateFilter ? { work_date: dateFilter } : {}
@@ -194,7 +204,7 @@ export default function AttendancePage() {
         getAttendanceOverrides(
           statusFilter ? { status: statusFilter } : {}
         ),
-        getStaff(),
+        staffRequest,
       ])
 
       setShifts(shiftData)
@@ -206,14 +216,16 @@ export default function AttendancePage() {
       if (status === 401) {
         setError('Your session has expired. Please sign in again.')
       } else if (status === 403) {
-        setError('Your account does not have permission to view attendance management.')
+        setError(
+          'Your account does not have permission to view one or more attendance resources.'
+        )
       } else {
         setError(getErrorMessage(err))
       }
     } finally {
       setLoading(false)
     }
-  }, [dateFilter, statusFilter])
+  }, [dateFilter, statusFilter, role, isSuperuser])
 
   useEffect(() => {
     loadData()
@@ -510,7 +522,6 @@ export default function AttendancePage() {
 
   return (
     <div className="space-y-7">
-
       {/* Page heading */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -1010,7 +1021,6 @@ export default function AttendancePage() {
       {showCreateModal && (
         <div className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6">
           <div className="bg-white w-full max-w-2xl max-h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-
             <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -1035,7 +1045,6 @@ export default function AttendancePage() {
 
             <form onSubmit={handleCreate} className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-5">
-
                 {formError && (
                   <div
                     role="alert"
@@ -1080,6 +1089,9 @@ export default function AttendancePage() {
 
                   <p className="text-xs text-slate-500 mt-1">
                     Only active staff members are available.
+                    {role === 'SUPERVISOR' && !isSuperuser
+                      ? ' You can select employees from your branch only.'
+                      : ''}
                   </p>
 
                   {activeStaff.length === 0 && (
@@ -1240,7 +1252,11 @@ export default function AttendancePage() {
 
                 <button
                   type="submit"
-                  disabled={submitting || activeStaff.length === 0 || shifts.length === 0}
+                  disabled={
+                    submitting ||
+                    activeStaff.length === 0 ||
+                    shifts.length === 0
+                  }
                   className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {submitting ? (
@@ -1265,7 +1281,6 @@ export default function AttendancePage() {
       {reviewRequest && (
         <div className="fixed inset-0 z-[110] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
-
             <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -1293,7 +1308,6 @@ export default function AttendancePage() {
 
             <form onSubmit={handleReview}>
               <div className="p-6 space-y-4">
-
                 {reviewError && (
                   <div
                     role="alert"

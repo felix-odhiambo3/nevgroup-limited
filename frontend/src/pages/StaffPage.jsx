@@ -12,18 +12,21 @@ import {
   Eye,
   EyeOff,
   Building2,
-  UserCheck,
+  CheckCircle2,
   UserX,
+  ShieldAlert,
+  Archive,
+  History,
   Clock,
-  Moon,
-  Sun,
-  ShieldCheck,
-  BriefcaseBusiness,
-  CalendarDays,
-  BarChart3,
 } from 'lucide-react'
 
-import { getStaff, registerStaff } from '../api/staff'
+import {
+  getStaff,
+  registerStaff,
+  updateStaffStatus,
+  getStaffStatusHistory,
+} from '../api/staff'
+
 import { getBranches } from '../api/branches'
 
 const getToday = () => {
@@ -54,15 +57,6 @@ const inputClass =
 
 const labelClass = 'block text-sm font-medium text-slate-700 mb-1.5'
 
-const ROLE_LABELS = {
-  OWNER: 'Owner',
-  ADMIN: 'Administrator',
-  SUPERVISOR: 'Supervisor',
-  ACCOUNTS: 'Accounts',
-  CLEANER: 'Cleaner',
-  DETAILER: 'Detailer',
-}
-
 function getErrorMessage(error) {
   const data = error.response?.data
 
@@ -84,46 +78,14 @@ function getErrorMessage(error) {
     .join('\n')
 }
 
-function SummaryCard({ label, value, description, icon: Icon, iconClass }) {
+function SummaryCard({ label, value, description }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="text-2xl font-bold text-slate-900 mt-2">
-            {value}
-          </p>
-          {description && (
-            <p className="text-xs text-slate-500 mt-1">{description}</p>
-          )}
-        </div>
-
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconClass}`}>
-          <Icon size={20} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DistributionRow({ label, count, total, color = 'bg-blue-600' }) {
-  const percentage = total > 0 ? (count / total) * 100 : 0
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="text-slate-700 font-medium">{label}</span>
-        <span className="text-slate-500 tabular-nums">
-          {count} ({Math.round(percentage)}%)
-        </span>
-      </div>
-
-      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color} transition-all`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 mt-2">{value}</p>
+      {description && (
+        <p className="text-xs text-slate-500 mt-1">{description}</p>
+      )}
     </div>
   )
 }
@@ -141,30 +103,64 @@ function getStatusStyle(status) {
   }
 }
 
-function getShiftStyle(shift) {
-  if (shift === 'DAY') {
-    return 'bg-amber-50 text-amber-700'
+function getActionLabel(action) {
+  const labels = {
+    ACTIVATED: 'Activated',
+    DEACTIVATED: 'Deactivated',
+    SUSPENDED: 'Suspended',
+    ARCHIVED: 'Archived',
   }
 
-  if (shift === 'NIGHT') {
-    return 'bg-indigo-50 text-indigo-700'
-  }
-
-  return 'bg-slate-100 text-slate-600'
+  return labels[action] || action
 }
 
-function formatDate(value) {
+function formatDateTime(value) {
   if (!value) return 'Not available'
 
   const date = new Date(value)
 
-  if (Number.isNaN(date.getTime())) return 'Not available'
+  if (Number.isNaN(date.getTime())) return value
 
-  return new Intl.DateTimeFormat('en-KE', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date)
+  return date.toLocaleString()
+}
+
+function Modal({ title, description, onClose, children, footer }) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="bg-white w-full max-w-xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-200 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+            {description && (
+              <p className="text-sm text-slate-500 mt-1">{description}</p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100"
+            aria-label="Close dialog"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto">{children}</div>
+
+        {footer && (
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function StaffPage() {
@@ -185,6 +181,17 @@ export default function StaffPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const [form, setForm] = useState(initialForm)
+
+  const [selectedMember, setSelectedMember] = useState(null)
+  const [pendingAction, setPendingAction] = useState('')
+  const [actionReason, setActionReason] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [actionLoading, setActionLoading] = useState(false)
+
+  const [historyMember, setHistoryMember] = useState(null)
+  const [historyItems, setHistoryItems] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
 
   const loadStaff = useCallback(async () => {
     setLoading(true)
@@ -227,80 +234,6 @@ export default function StaffPage() {
     loadBranches()
   }, [loadStaff, loadBranches])
 
-  // All overview statistics are calculated from the staff API response.
-  const overview = useMemo(() => {
-    const total = staff.length
-
-    const active = staff.filter(
-      (member) => member.employment_status === 'ACTIVE'
-    ).length
-
-    const inactive = staff.filter(
-      (member) => member.employment_status === 'INACTIVE'
-    ).length
-
-    const suspended = staff.filter(
-      (member) => member.employment_status === 'SUSPENDED'
-    ).length
-
-    const dayShift = staff.filter(
-      (member) => member.current_shift === 'DAY'
-    ).length
-
-    const nightShift = staff.filter(
-      (member) => member.current_shift === 'NIGHT'
-    ).length
-
-    const unassignedShift = staff.filter(
-      (member) => !['DAY', 'NIGHT'].includes(member.current_shift)
-    ).length
-
-    const roles = Object.keys(ROLE_LABELS).map((role) => ({
-      role,
-      label: ROLE_LABELS[role],
-      count: staff.filter((member) => member.role === role).length,
-    })).filter((item) => item.count > 0)
-
-    const branchMap = new Map()
-
-    staff.forEach((member) => {
-      const branchKey = member.branch ?? member.branch_name ?? 'unassigned'
-      const branchLabel = member.branch_name || 'Branch not assigned'
-
-      if (!branchMap.has(String(branchKey))) {
-        branchMap.set(String(branchKey), {
-          label: branchLabel,
-          count: 0,
-        })
-      }
-
-      branchMap.get(String(branchKey)).count += 1
-    })
-
-    const branchDistribution = Array.from(branchMap.values())
-      .sort((a, b) => b.count - a.count)
-
-    const recentStaff = [...staff]
-      .filter((member) => member.created_at)
-      .sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      )
-      .slice(0, 5)
-
-    return {
-      total,
-      active,
-      inactive,
-      suspended,
-      dayShift,
-      nightShift,
-      unassignedShift,
-      roles,
-      branchDistribution,
-      recentStaff,
-    }
-  }, [staff])
-
   const filteredStaff = useMemo(() => {
     const term = search.trim().toLowerCase()
 
@@ -316,7 +249,6 @@ export default function StaffPage() {
         member.branch_name,
         member.role,
         member.employment_status,
-        member.current_shift,
       ]
 
       return searchableFields.some((value) =>
@@ -324,6 +256,18 @@ export default function StaffPage() {
       )
     })
   }, [staff, search])
+
+  const activeCount = staff.filter(
+    (member) => member.employment_status === 'ACTIVE'
+  ).length
+
+  const inactiveCount = staff.filter(
+    (member) => member.employment_status === 'INACTIVE'
+  ).length
+
+  const suspendedCount = staff.filter(
+    (member) => member.employment_status === 'SUSPENDED'
+  ).length
 
   const updateField = (event) => {
     const { name, value } = event.target
@@ -345,9 +289,7 @@ export default function StaffPage() {
     setShowPassword(false)
     setShowModal(true)
 
-    if (branches.length === 0) {
-      loadBranches()
-    }
+    if (branches.length === 0) loadBranches()
   }
 
   const closeRegistration = () => {
@@ -402,6 +344,128 @@ export default function StaffPage() {
     }
   }
 
+  const openStatusAction = (member, action) => {
+    setSelectedMember(member)
+    setPendingAction(action)
+    setActionReason('')
+    setActionError('')
+  }
+
+  const closeStatusAction = () => {
+    if (actionLoading) return
+
+    setSelectedMember(null)
+    setPendingAction('')
+    setActionReason('')
+    setActionError('')
+  }
+
+  const handleStatusAction = async (event) => {
+    event.preventDefault()
+
+    if (!selectedMember || !pendingAction) return
+
+    if (
+      ['SUSPEND', 'DEACTIVATE', 'ARCHIVE'].includes(pendingAction) &&
+      !actionReason.trim()
+    ) {
+      setActionError('Please provide a reason for this action.')
+      return
+    }
+
+    setActionLoading(true)
+    setActionError('')
+    setSuccessMessage('')
+
+    try {
+      const response = await updateStaffStatus(selectedMember.id, {
+        action: pendingAction,
+        reason: actionReason.trim(),
+      })
+
+      const messages = {
+        ACTIVATE: 'Staff member activated successfully.',
+        DEACTIVATE: 'Staff member deactivated successfully.',
+        SUSPEND: 'Staff member suspended successfully.',
+        ARCHIVE: 'Staff member archived successfully.',
+      }
+
+      setSuccessMessage(
+        response.detail || messages[pendingAction]
+      )
+
+      closeStatusAction()
+      await loadStaff()
+    } catch (err) {
+      setActionError(getErrorMessage(err))
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const openHistory = async (member) => {
+    setHistoryMember(member)
+    setHistoryItems([])
+    setHistoryError('')
+    setHistoryLoading(true)
+
+    try {
+      const data = await getStaffStatusHistory(member.id)
+      setHistoryItems(data)
+    } catch (err) {
+      setHistoryError(getErrorMessage(err))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const closeHistory = () => {
+    setHistoryMember(null)
+    setHistoryItems([])
+    setHistoryError('')
+  }
+
+  const actionDetails = {
+    ACTIVATE: {
+      title: 'Reactivate Staff Account',
+      description:
+        'This will restore the employee to active employment status and enable their login access.',
+      button: 'Confirm Reactivation',
+      buttonClass: 'bg-green-600 hover:bg-green-700',
+      icon: <CheckCircle2 size={20} />,
+      requiresReason: false,
+    },
+    DEACTIVATE: {
+      title: 'Deactivate Staff Account',
+      description:
+        'This will set the employee to inactive and disable their login access. The employee will remain in the staff directory.',
+      button: 'Confirm Deactivation',
+      buttonClass: 'bg-slate-700 hover:bg-slate-800',
+      icon: <UserX size={20} />,
+      requiresReason: true,
+    },
+    SUSPEND: {
+      title: 'Suspend Staff Account',
+      description:
+        'This will mark the employee as suspended and immediately disable their login access. The suspension will be recorded in the staff history.',
+      button: 'Confirm Suspension',
+      buttonClass: 'bg-red-600 hover:bg-red-700',
+      icon: <ShieldAlert size={20} />,
+      requiresReason: true,
+    },
+    ARCHIVE: {
+      title: 'Archive Staff Account',
+      description:
+        'This will archive the employee record, disable login access and remove the employee from the normal staff directory. This action should be used when the record should no longer be active.',
+      button: 'Confirm Archive',
+      buttonClass: 'bg-red-700 hover:bg-red-800',
+      icon: <Archive size={20} />,
+      requiresReason: true,
+    },
+  }
+
+  const currentAction = actionDetails[pendingAction]
+
   return (
     <div className="space-y-7">
 
@@ -423,26 +487,14 @@ export default function StaffPage() {
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={loadStaff}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={openRegistration}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
-          >
-            <UserPlus size={18} />
-            Register Staff
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={openRegistration}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+        >
+          <UserPlus size={18} />
+          Register Staff
+        </button>
       </div>
 
       {/* Success message */}
@@ -455,248 +507,17 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Staff overview */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <BarChart3 size={19} className="text-slate-500" />
-          <h2 className="font-semibold text-slate-900">Staff Overview</h2>
-          <span className="text-xs text-slate-400">Live database figures</span>
-        </div>
-
-        {error && (
-          <div className="p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-            <AlertCircle size={20} className="text-red-600 shrink-0" />
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <SummaryCard
-            label="Total Staff"
-            value={loading ? '—' : overview.total}
-            description="Registered employee profiles"
-            icon={Users}
-            iconClass="bg-blue-50 text-blue-700"
-          />
-
-          <SummaryCard
-            label="Active Staff"
-            value={loading ? '—' : overview.active}
-            description="Eligible for operational assignments"
-            icon={UserCheck}
-            iconClass="bg-green-50 text-green-700"
-          />
-
-          <SummaryCard
-            label="Inactive Staff"
-            value={loading ? '—' : overview.inactive}
-            description="Currently inactive"
-            icon={UserX}
-            iconClass="bg-slate-100 text-slate-600"
-          />
-
-          <SummaryCard
-            label="Suspended Staff"
-            value={loading ? '—' : overview.suspended}
-            description="Currently suspended"
-            icon={ShieldCheck}
-            iconClass="bg-red-50 text-red-700"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-
-          {/* Role distribution */}
-          <section className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-5">
-              <BriefcaseBusiness size={19} className="text-slate-500" />
-              <div>
-                <h3 className="font-semibold text-slate-900">
-                  Role Distribution
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Employee profiles by assigned role
-                </p>
-              </div>
-            </div>
-
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading role statistics...</p>
-            ) : overview.roles.length === 0 ? (
-              <p className="text-sm text-slate-500">No staff roles available.</p>
-            ) : (
-              <div className="space-y-4">
-                {overview.roles.map((item) => (
-                  <DistributionRow
-                    key={item.role}
-                    label={item.label}
-                    count={item.count}
-                    total={overview.total}
-                    color="bg-blue-600"
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Shift distribution */}
-          <section className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-5">
-              <Clock size={19} className="text-slate-500" />
-              <div>
-                <h3 className="font-semibold text-slate-900">
-                  Shift Distribution
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Based on currently effective shift assignments
-                </p>
-              </div>
-            </div>
-
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading shift statistics...</p>
-            ) : (
-              <div className="space-y-4">
-                <DistributionRow
-                  label="Day Shift"
-                  count={overview.dayShift}
-                  total={overview.total}
-                  color="bg-amber-500"
-                />
-
-                <DistributionRow
-                  label="Night Shift"
-                  count={overview.nightShift}
-                  total={overview.total}
-                  color="bg-indigo-600"
-                />
-
-                <DistributionRow
-                  label="Unassigned"
-                  count={overview.unassignedShift}
-                  total={overview.total}
-                  color="bg-slate-400"
-                />
-
-                <div className="grid grid-cols-3 gap-2 pt-2">
-                  <div className="rounded-lg bg-amber-50 p-3 text-center">
-                    <Sun size={18} className="mx-auto text-amber-600 mb-1" />
-                    <p className="text-lg font-bold text-amber-800">
-                      {overview.dayShift}
-                    </p>
-                    <p className="text-xs text-amber-700">Day</p>
-                  </div>
-
-                  <div className="rounded-lg bg-indigo-50 p-3 text-center">
-                    <Moon size={18} className="mx-auto text-indigo-600 mb-1" />
-                    <p className="text-lg font-bold text-indigo-800">
-                      {overview.nightShift}
-                    </p>
-                    <p className="text-xs text-indigo-700">Night</p>
-                  </div>
-
-                  <div className="rounded-lg bg-slate-100 p-3 text-center">
-                    <Clock size={18} className="mx-auto text-slate-600 mb-1" />
-                    <p className="text-lg font-bold text-slate-800">
-                      {overview.unassignedShift}
-                    </p>
-                    <p className="text-xs text-slate-600">Unassigned</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Branch distribution */}
-        <section className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 mb-5">
-            <Building2 size={19} className="text-slate-500" />
-            <div>
-              <h3 className="font-semibold text-slate-900">
-                Branch Distribution
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Staff members assigned to each branch
-              </p>
-            </div>
-          </div>
-
-          {loading ? (
-            <p className="text-sm text-slate-500">Loading branch statistics...</p>
-          ) : overview.branchDistribution.length === 0 ? (
-            <p className="text-sm text-slate-500">No branch assignments found.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {overview.branchDistribution.map((branch) => (
-                <div
-                  key={branch.label}
-                  className="border border-slate-200 rounded-lg p-4 flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-800 truncate">
-                      {branch.label}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Assigned employees
-                    </p>
-                  </div>
-
-                  <span className="text-xl font-bold text-slate-900">
-                    {branch.count}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Recently added staff */}
-        <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="p-5 border-b border-slate-200 flex items-center gap-2">
-            <CalendarDays size={19} className="text-slate-500" />
-            <div>
-              <h3 className="font-semibold text-slate-900">
-                Recently Added Staff
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Latest employee accounts created in the system
-              </p>
-            </div>
-          </div>
-
-          {loading ? (
-            <p className="p-5 text-sm text-slate-500">Loading recent staff...</p>
-          ) : overview.recentStaff.length === 0 ? (
-            <p className="p-5 text-sm text-slate-500">
-              No recent staff records available.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {overview.recentStaff.map((member) => (
-                <div
-                  key={member.id}
-                  className="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
-                >
-                  <div>
-                    <p className="font-medium text-sm text-slate-900">
-                      {member.full_name || member.username}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {member.staff_number} · {ROLE_LABELS[member.role] || member.role}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>{member.branch_name || 'No branch'}</span>
-                    <span>{formatDate(member.created_at)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </section>
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <SummaryCard label="Total Staff" value={staff.length} />
+        <SummaryCard label="Active" value={activeCount} />
+        <SummaryCard label="Inactive" value={inactiveCount} />
+        <SummaryCard
+          label="Suspended"
+          value={suspendedCount}
+          description="Login access disabled"
+        />
+      </div>
 
       {/* Staff directory */}
       <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -708,7 +529,7 @@ export default function StaffPage() {
             </h2>
 
             <p className="text-sm text-slate-500 mt-1">
-              Search and view employee records retrieved from the database.
+              Manage employee records and account access.
             </p>
           </div>
 
@@ -727,6 +548,19 @@ export default function StaffPage() {
                 className={`${inputClass} sm:w-64 pl-10`}
               />
             </div>
+
+            <button
+              type="button"
+              onClick={loadStaff}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw
+                size={16}
+                className={loading ? 'animate-spin' : ''}
+              />
+              Refresh
+            </button>
           </div>
         </div>
 
@@ -778,58 +612,125 @@ export default function StaffPage() {
                   <th className="px-5 py-4">Staff Number</th>
                   <th className="px-5 py-4">Branch</th>
                   <th className="px-5 py-4">Role</th>
-                  <th className="px-5 py-4">Shift</th>
                   <th className="px-5 py-4">Phone</th>
                   <th className="px-5 py-4">Status</th>
+                  <th className="px-5 py-4">Account Management</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {filteredStaff.map((member) => (
-                  <tr key={member.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4">
-                      <p className="font-medium text-slate-900">
-                        {member.full_name || member.username}
-                      </p>
+                {filteredStaff.map((member) => {
+                  const active = member.employment_status === 'ACTIVE'
+                  const suspended = member.employment_status === 'SUSPENDED'
+                  const inactive = member.employment_status === 'INACTIVE'
 
-                      <p className="text-xs text-slate-500 mt-1">
-                        {member.email}
-                      </p>
-                    </td>
+                  // The backend remains authoritative for protected accounts.
+                  // OWNER profiles are also hidden from ADMIN by the API.
+                  const isOwnerAccount = member.role === 'OWNER'
 
-                    <td className="px-5 py-4 text-sm text-slate-700">
-                      {member.staff_number}
-                    </td>
+                  return (
+                    <tr key={member.id} className="hover:bg-slate-50 align-top">
+                      <td className="px-5 py-4">
+                        <p className="font-medium text-slate-900">
+                          {member.full_name || member.username}
+                        </p>
 
-                    <td className="px-5 py-4 text-sm text-slate-700">
-                      {member.branch_name || 'Not assigned'}
-                    </td>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {member.email}
+                        </p>
+                      </td>
 
-                    <td className="px-5 py-4 text-sm text-slate-700">
-                      {ROLE_LABELS[member.role] || member.role || 'Not assigned'}
-                    </td>
+                      <td className="px-5 py-4 text-sm text-slate-700">
+                        {member.staff_number}
+                      </td>
 
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getShiftStyle(member.current_shift)}`}
-                      >
-                        {member.current_shift || 'Unassigned'}
-                      </span>
-                    </td>
+                      <td className="px-5 py-4 text-sm text-slate-700">
+                        {member.branch_name || 'Not assigned'}
+                      </td>
 
-                    <td className="px-5 py-4 text-sm text-slate-700">
-                      {member.phone_number || 'Not provided'}
-                    </td>
+                      <td className="px-5 py-4 text-sm text-slate-700">
+                        {member.role || 'Not assigned'}
+                      </td>
 
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusStyle(member.employment_status)}`}
-                      >
-                        {member.employment_status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-5 py-4 text-sm text-slate-700">
+                        {member.phone_number || 'Not provided'}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="space-y-1">
+                          <span
+                            className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusStyle(member.employment_status)}`}
+                          >
+                            {member.employment_status}
+                          </span>
+
+                          <p className="text-xs text-slate-500">
+                            {member.employment_status === 'ACTIVE'
+                              ? 'Login expected enabled'
+                              : 'Login disabled'}
+                          </p>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4 min-w-[260px]">
+                        <div className="flex flex-wrap gap-2">
+                          {active && !isOwnerAccount && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openStatusAction(member, 'SUSPEND')}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold"
+                              >
+                                <ShieldAlert size={14} />
+                                Suspend
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => openStatusAction(member, 'DEACTIVATE')}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold"
+                              >
+                                <UserX size={14} />
+                                Deactivate
+                              </button>
+                            </>
+                          )}
+
+                          {(inactive || suspended) && !isOwnerAccount && (
+                            <button
+                              type="button"
+                              onClick={() => openStatusAction(member, 'ACTIVATE')}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 text-xs font-semibold"
+                            >
+                              <CheckCircle2 size={14} />
+                              {suspended ? 'Reactivate' : 'Activate'}
+                            </button>
+                          )}
+
+                          {!isOwnerAccount && (
+                            <button
+                              type="button"
+                              onClick={() => openStatusAction(member, 'ARCHIVE')}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-semibold"
+                            >
+                              <Archive size={14} />
+                              Archive
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => openHistory(member)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold"
+                          >
+                            <History size={14} />
+                            History
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -842,19 +743,16 @@ export default function StaffPage() {
         )}
       </section>
 
-      {/* Staff registration modal */}
+      {/* Registration modal */}
       {showModal && (
         <div
           className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeRegistration()
-            }
+            if (event.target === event.currentTarget) closeRegistration()
           }}
         >
           <div className="bg-white w-full max-w-3xl max-h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
 
-            {/* Modal header */}
             <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -877,11 +775,7 @@ export default function StaffPage() {
               </button>
             </div>
 
-            {/* Registration form */}
-            <form
-              onSubmit={handleRegistration}
-              className="flex-1 overflow-y-auto"
-            >
+            <form onSubmit={handleRegistration} className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-6">
 
                 {formError && (
@@ -897,7 +791,6 @@ export default function StaffPage() {
                   </div>
                 )}
 
-                {/* Personal information */}
                 <section>
                   <h3 className="font-semibold text-slate-900 mb-4">
                     Personal Information
@@ -977,7 +870,6 @@ export default function StaffPage() {
 
                 <div className="border-t border-slate-100" />
 
-                {/* Account information */}
                 <section>
                   <h3 className="font-semibold text-slate-900 mb-4">
                     Account Information
@@ -1035,7 +927,6 @@ export default function StaffPage() {
 
                 <div className="border-t border-slate-100" />
 
-                {/* Employment information */}
                 <section>
                   <h3 className="font-semibold text-slate-900 mb-4">
                     Employment Information
@@ -1167,7 +1058,6 @@ export default function StaffPage() {
                 </section>
               </div>
 
-              {/* Modal footer */}
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3">
                 <button
                   type="button"
@@ -1199,6 +1089,163 @@ export default function StaffPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Account status confirmation modal */}
+      {selectedMember && currentAction && (
+        <Modal
+          title={currentAction.title}
+          description={`${selectedMember.full_name || selectedMember.username} · ${selectedMember.staff_number}`}
+          onClose={closeStatusAction}
+          footer={
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeStatusAction}
+                disabled={actionLoading}
+                className="px-5 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                form="staff-status-action-form"
+                disabled={actionLoading}
+                className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-50 ${currentAction.buttonClass}`}
+              >
+                {actionLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    {currentAction.icon}
+                    {currentAction.button}
+                  </>
+                )}
+              </button>
+            </div>
+          }
+        >
+          <form id="staff-status-action-form" onSubmit={handleStatusAction} className="space-y-4">
+            <p className="text-sm text-slate-600">
+              {currentAction.description}
+            </p>
+
+            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+              <div className="flex justify-between gap-3 text-sm">
+                <span className="text-slate-500">Current status</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMember.employment_status}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-3 text-sm mt-2">
+                <span className="text-slate-500">Staff number</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMember.staff_number}
+                </span>
+              </div>
+            </div>
+
+            {currentAction.requiresReason && (
+              <div>
+                <label htmlFor="action_reason" className={labelClass}>
+                  Reason *
+                </label>
+
+                <textarea
+                  id="action_reason"
+                  value={actionReason}
+                  onChange={(event) => setActionReason(event.target.value)}
+                  className={`${inputClass} min-h-28 resize-y`}
+                  placeholder="Enter the reason for this action..."
+                  maxLength={2000}
+                  required
+                />
+              </div>
+            )}
+
+            {actionError && (
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 whitespace-pre-line"
+              >
+                {actionError}
+              </div>
+            )}
+          </form>
+        </Modal>
+      )}
+
+      {/* Status history modal */}
+      {historyMember && (
+        <Modal
+          title="Staff Account History"
+          description={`${historyMember.full_name || historyMember.username} · ${historyMember.staff_number}`}
+          onClose={closeHistory}
+        >
+          {historyLoading ? (
+            <div className="py-10 text-center text-slate-500">
+              <RefreshCw size={24} className="animate-spin mx-auto mb-3" />
+              Loading account history...
+            </div>
+          ) : historyError ? (
+            <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 whitespace-pre-line">
+              {historyError}
+            </div>
+          ) : historyItems.length === 0 ? (
+            <div className="py-10 text-center">
+              <History size={30} className="mx-auto text-slate-300 mb-3" />
+              <p className="font-medium text-slate-700">
+                No status history available.
+              </p>
+              <p className="text-sm text-slate-500 mt-1">
+                Account actions will appear here when recorded.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {historyItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="border border-slate-200 rounded-xl p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusStyle(
+                        item.action === 'ACTIVATED'
+                          ? 'ACTIVE'
+                          : item.action === 'SUSPENDED'
+                            ? 'SUSPENDED'
+                            : 'INACTIVE'
+                      )}`}
+                    >
+                      {getActionLabel(item.action)}
+                    </span>
+
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <Clock size={13} />
+                      {formatDateTime(item.created_at)}
+                    </span>
+                  </div>
+
+                  <p className="text-sm text-slate-700 mt-3">
+                    **Performed by:** {item.performed_by_username || 'Unknown'}
+                  </p>
+
+                  {item.reason && (
+                    <p className="text-sm text-slate-600 mt-2 whitespace-pre-line">
+                      **Reason:** {item.reason}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   )

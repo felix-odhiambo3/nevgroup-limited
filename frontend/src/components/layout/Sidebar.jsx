@@ -6,13 +6,12 @@ import {
   Users,
   ClipboardCheck,
   CarFront,
-  Wrench,
-  CreditCard,
-  BarChart3,
-  Settings,
   Building2,
   X,
 } from 'lucide-react'
+
+import { useAuth } from '../../features/auth/AuthContext'
+import { canAccessRoute } from '../../config/rolePermissions'
 
 const navigation = [
   {
@@ -43,32 +42,22 @@ const navigation = [
         path: '/check-in',
         icon: CarFront,
       },
-      {
-        name: 'Services & Pricing',
-        icon: Wrench,
-      },
-      {
-        name: 'Payments',
-        icon: CreditCard,
-      },
-    ],
-  },
-  {
-    title: 'MANAGEMENT',
-    items: [
-      {
-        name: 'Reports',
-        icon: BarChart3,
-      },
-      {
-        name: 'Settings',
-        icon: Settings,
-      },
     ],
   },
 ]
 
 export default function Sidebar({ isOpen = false, onClose }) {
+  const { user } = useAuth()
+
+  const visibleGroups = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        canAccessRoute(user, item.path)
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
+
   return (
     <aside
       className={`
@@ -93,6 +82,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
             <h1 className="text-lg font-bold tracking-wide">
               NEV CARWASH
             </h1>
+
             <p className="text-xs font-bold text-yellow-300">
               Management System
             </p>
@@ -110,7 +100,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
       </div>
 
       <nav className="flex-1 space-y-7 overflow-y-auto px-4 py-6">
-        {navigation.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.title}>
             <p className="mb-3 px-3 text-xs font-semibold tracking-widest text-slate-500">
               {group.title}
@@ -120,22 +110,9 @@ export default function Sidebar({ isOpen = false, onClose }) {
               {group.items.map((item) => {
                 const Icon = item.icon
 
-                if (!item.path) {
-                  return (
-                    <div
-                      key={item.name}
-                      title="Module setup in progress"
-                      className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-500"
-                    >
-                      <Icon size={19} />
-                      <span>{item.name}</span>
-                    </div>
-                  )
-                }
-
                 return (
                   <NavLink
-                    key={item.name}
+                    key={item.path}
                     to={item.path}
                     onClick={onClose}
                     className={({ isActive }) =>

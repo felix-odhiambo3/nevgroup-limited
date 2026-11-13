@@ -26,6 +26,16 @@ export const updateVehicle = async (vehicleId, vehicleData) => {
   return response.data
 }
 
+export const getVehicleCategories = async () => {
+  const response = await api.get('vehicles/categories/')
+  return unwrapList(response.data)
+}
+
+export const createVehicleCategory = async (categoryData) => {
+  const response = await api.post('vehicles/categories/', categoryData)
+  return response.data
+}
+
 export const getCustomers = async (params = {}) => {
   const response = await api.get('vehicles/customers/', { params })
   return unwrapList(response.data)

@@ -24,7 +24,14 @@ export const logoutUser = async () => {
     if (refresh) {
       await api.post('auth/logout/', { refresh })
     }
+  } catch (error) {
+    // The refresh token may already be expired or blacklisted.
+    // The local session must still be cleared.
+    if (error.response?.status !== 400 && error.response?.status !== 401) {
+      throw error
+    }
   } finally {
-    sessionStorage.clear()
+    sessionStorage.removeItem('access_token')
+    sessionStorage.removeItem('refresh_token')
   }
 }
