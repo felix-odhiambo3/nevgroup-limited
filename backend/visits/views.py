@@ -1,6 +1,8 @@
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from payments.workflows import complete_visit_and_generate_invoice
+
 from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
@@ -81,9 +83,6 @@ class MyDayView(APIView):
         staff = get_active_staff_profile(request.user)
         today = timezone.localdate()
 
-        # Include today's assignments, assignments completed today,
-        # and unfinished active assignments carried over from an
-        # earlier visit.
         assignments = (
             ServiceAssignment.objects
             .filter(
@@ -145,7 +144,6 @@ class MyDayView(APIView):
                 1,
             )
 
-        # Get the cleaner's effective shift assignment for today.
         shift_assignment = (
             ShiftAssignment.objects
             .filter(
@@ -160,10 +158,6 @@ class MyDayView(APIView):
             .first()
         )
 
-        # Include all active cleaners at this branch, even if they
-        # have completed zero assignments today.
-        #
-        # Only aggregate counts are returned to the frontend.
         leaderboard_records = list(
             StaffProfile.objects
             .filter(
@@ -200,7 +194,6 @@ class MyDayView(APIView):
         ):
             completed_count = item['completed_today']
 
-            # Competition ranking: 1, 2, 2, 4.
             if completed_count != previous_count:
                 current_rank = position
                 previous_count = completed_count
@@ -221,9 +214,6 @@ class MyDayView(APIView):
                 'is_current_user': is_current_user,
             })
 
-        # Commission is intentionally not estimated from catalogue
-        # prices. The current system has no final vehicle bill or
-        # bargaining-discount record from which to calculate it.
         commission_summary = {
             'amount': None,
             'currency': 'KES',
@@ -620,7 +610,6 @@ class ServiceAssignmentRemoveView(generics.GenericAPIView):
         )
 
 
-
 class VisitCompleteView(APIView):
     """
     Complete a visit and generate its invoice in one transaction.
@@ -694,6 +683,10 @@ class VisitCompleteView(APIView):
 
             raise ValidationError(detail)
 
+        # The workflow updates a separately fetched Visit instance.
+        # Refresh this instance so the response contains the saved values.
+        visit.refresh_from_db()
+
         lines = invoice.lines.all()
 
         return Response(
@@ -701,7 +694,7 @@ class VisitCompleteView(APIView):
                 'detail': 'Visit completed and invoice issued successfully.',
                 'visit': {
                     'id': visit.pk,
-                    'status': Visit.Status.COMPLETED,
+                    'status': visit.status,
                     'completed_at': (
                         visit.completed_at.isoformat()
                         if visit.completed_at
