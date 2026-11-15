@@ -13,18 +13,28 @@ import {
   X,
   Clock3,
   CarFront,
-  CalendarDays,
   History,
+  Building2,
+  ShieldCheck,
+  Eye,
 } from 'lucide-react'
+
+import { useAuth } from '../features/auth/AuthContext'
 
 import {
   getSupervisorAssignments,
   reassignSupervisorAssignment,
   completeSupervisorAssignment,
   removeSupervisorAssignment,
+  getAssignmentCorrections,
+  correctCompletedAssignment,
 } from '../api/visits'
 
 import { getBranchStaff } from '../api/staffOperations'
+
+// --------------------------------------------------
+// HELPERS
+// --------------------------------------------------
 
 const getErrorMessage = (error) => {
   const data = error?.response?.data
@@ -82,10 +92,12 @@ const getExpectedRole = (category) => {
 }
 
 const getStaffName = (staff) =>
-  staff.full_name ||
-  staff.username ||
-  staff.staff_number ||
-  `Staff member #${staff.id}`
+  staff?.full_name ||
+  staff?.user?.full_name ||
+  staff?.username ||
+  staff?.user?.username ||
+  staff?.staff_number ||
+  `Staff member #${staff?.id}`
 
 const getAssignmentStatus = (assignment) => {
   if (!assignment.is_active) return 'REMOVED'
@@ -98,6 +110,16 @@ const statusStyles = {
   COMPLETED: 'bg-green-100 text-green-800',
   REMOVED: 'bg-slate-200 text-slate-700',
 }
+
+const roleLabels = {
+  SUPERVISOR: 'Supervisor',
+  ADMIN: 'Administrator',
+  OWNER: 'Owner',
+}
+
+// --------------------------------------------------
+// SHARED UI
+// --------------------------------------------------
 
 function StatusBadge({ status }) {
   const labels = {
@@ -135,6 +157,82 @@ function SummaryCard({ label, value, icon: Icon, description }) {
   )
 }
 
+// --------------------------------------------------
+// EMPLOYEE SELECTOR
+// --------------------------------------------------
+
+function EmployeeSelector({
+  staff,
+  assignment,
+  selectedStaffId,
+  onStaffChange,
+  label,
+  loading,
+}) {
+  const expectedRole = getExpectedRole(assignment.service_category)
+
+  const eligibleStaff = staff.filter(
+    (member) =>
+      member.role === expectedRole &&
+      Number(member.id) !== Number(assignment.staff) &&
+      member.employment_status === 'ACTIVE' &&
+      !member.is_archived
+  )
+
+  if (loading) {
+    return (
+      <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+        <Loader2 size={16} className="animate-spin" />
+        Loading eligible employees...
+      </div>
+    )
+  }
+
+  if (!expectedRole) {
+    return (
+      <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+        This service category does not support employee replacement.
+      </p>
+    )
+  }
+
+  if (eligibleStaff.length === 0) {
+    return (
+      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        No other active eligible employees were found in this branch.
+      </p>
+    )
+  }
+
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-slate-700">
+        {label} *
+      </label>
+
+      <select
+        value={selectedStaffId}
+        onChange={(event) => onStaffChange(event.target.value)}
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+      >
+        <option value="">Select employee</option>
+
+        {eligibleStaff.map((member) => (
+          <option key={member.id} value={member.id}>
+            {getStaffName(member)}
+            {member.staff_number ? ` (${member.staff_number})` : ''}
+            {member.current_shift ? ` — ${member.current_shift}` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// --------------------------------------------------
+// SUPERVISOR REASSIGNMENT PANEL
+// --------------------------------------------------
+
 function ReassignPanel({
   assignment,
   staff,
@@ -147,14 +245,6 @@ function ReassignPanel({
   onCancel,
   onSubmit,
 }) {
-  const expectedRole = getExpectedRole(assignment.service_category)
-
-  const eligibleStaff = staff.filter(
-    (member) =>
-      member.role === expectedRole &&
-      Number(member.id) !== Number(assignment.staff)
-  )
-
   return (
     <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -162,6 +252,7 @@ function ReassignPanel({
           <h4 className="font-semibold text-slate-900">
             Reassign service
           </h4>
+
           <p className="mt-1 text-sm text-slate-600">
             Select a replacement employee for {assignment.service_name}.
           </p>
@@ -178,98 +269,258 @@ function ReassignPanel({
         </button>
       </div>
 
-      {loadingStaff ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
-          <Loader2 size={16} className="animate-spin" />
-          Loading eligible employees...
+      <div className="mt-4 space-y-3">
+        <EmployeeSelector
+          staff={staff}
+          assignment={assignment}
+          selectedStaffId={selectedStaffId}
+          onStaffChange={onStaffChange}
+          label="Replacement employee"
+          loading={loadingStaff}
+        />
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Reason for reassignment *
+          </label>
+
+          <textarea
+            rows={2}
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Explain why this employee is being replaced."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+          />
         </div>
-      ) : eligibleStaff.length === 0 ? (
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          No other active {expectedRole === 'CLEANER' ? 'cleaners' : 'detailers'}
-          {' '}are available in your branch for this service.
-        </p>
-      ) : (
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Replacement employee *
-            </label>
 
-            <select
-              value={selectedStaffId}
-              onChange={(event) => onStaffChange(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            >
-              <option value="">Select replacement employee</option>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
 
-              {eligibleStaff.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {getStaffName(member)}
-                  {member.staff_number ? ` (${member.staff_number})` : ''}
-                  {member.current_shift ? ` — ${member.current_shift}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Reason for reassignment *
-            </label>
-
-            <textarea
-              rows={2}
-              value={reason}
-              onChange={(event) => onReasonChange(event.target.value)}
-              placeholder="Explain why this employee is being replaced."
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={saving}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={saving || !selectedStaffId || reason.trim().length < 3}
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 size={15} className="mr-2 animate-spin" />
-                  Reassigning...
-                </>
-              ) : (
-                <>
-                  <UserPlus size={15} className="mr-2" />
-                  Confirm reassignment
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={
+              saving ||
+              loadingStaff ||
+              !selectedStaffId ||
+              reason.trim().length < 3
+            }
+            className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <Loader2 size={15} className="mr-2 animate-spin" />
+                Reassigning...
+              </>
+            ) : (
+              <>
+                <UserPlus size={15} className="mr-2" />
+                Confirm reassignment
+              </>
+            )}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }
 
+// --------------------------------------------------
+// COMPLETED ASSIGNMENT CORRECTION PANEL
+// --------------------------------------------------
+
+function CorrectionPanel({
+  assignment,
+  staff,
+  loadingStaff,
+  loadingHistory,
+  history,
+  saving,
+  selectedStaffId,
+  reason,
+  onStaffChange,
+  onReasonChange,
+  onCancel,
+  onSubmit,
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50/50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={19} className="text-purple-700" />
+            <h4 className="font-semibold text-slate-900">
+              Correct completed assignment
+            </h4>
+          </div>
+
+          <p className="mt-1 text-sm text-slate-600">
+            This changes the employee recorded on this completed assignment.
+            The original completion time and confirmation remain unchanged.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="rounded-lg p-1 text-slate-500 hover:bg-white hover:text-slate-800"
+          aria-label="Close correction panel"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-purple-100 bg-white p-3">
+        <p className="text-xs text-slate-500">Currently recorded employee</p>
+        <p className="mt-1 font-semibold text-slate-900">
+          {assignment.staff_name || 'Employee not recorded'}
+        </p>
+        <p className="text-xs text-slate-500">
+          {assignment.staff_number || ''}
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <EmployeeSelector
+          staff={staff}
+          assignment={assignment}
+          selectedStaffId={selectedStaffId}
+          onStaffChange={onStaffChange}
+          label="Correct employee to"
+          loading={loadingStaff}
+        />
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            Reason for correction *
+          </label>
+
+          <textarea
+            rows={3}
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Explain why the original employee record needs correction."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-purple-500"
+          />
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={
+              saving ||
+              loadingStaff ||
+              !selectedStaffId ||
+              reason.trim().length < 3
+            }
+            className="inline-flex items-center justify-center rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <Loader2 size={15} className="mr-2 animate-spin" />
+                Saving correction...
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={15} className="mr-2" />
+                Confirm correction
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t border-purple-200 pt-4">
+        <div className="flex items-center gap-2">
+          <History size={17} className="text-purple-700" />
+          <h5 className="font-semibold text-slate-900">
+            Correction history
+          </h5>
+        </div>
+
+        {loadingHistory ? (
+          <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            <Loader2 size={15} className="animate-spin" />
+            Loading correction history...
+          </div>
+        ) : history.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            No corrections have been made to this assignment.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {history.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-lg border border-slate-200 bg-white p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {item.previous_staff_name || 'Previous employee'}
+                    {' → '}
+                    {item.new_staff_name || 'New employee'}
+                  </p>
+
+                  <span className="text-xs text-slate-500">
+                    {formatDateTime(item.created_at)}
+                  </span>
+                </div>
+
+                <p className="mt-2 text-sm text-slate-700">
+                  {item.reason}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Corrected by {item.corrected_by_name || 'Administrator'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// --------------------------------------------------
+// ASSIGNMENT CARD
+// --------------------------------------------------
+
 function AssignmentCard({
   assignment,
+  role,
   onComplete,
   onRemove,
   onOpenReassign,
+  onOpenCorrection,
+  onViewCorrectionHistory,
   actionBusy,
 }) {
   const currentStatus = getAssignmentStatus(assignment)
-  const canManage = currentStatus === 'ACTIVE'
+
+  const isSupervisor = role === 'SUPERVISOR'
+  const canManage = isSupervisor && currentStatus === 'ACTIVE'
+  const canCorrect =
+    (role === 'ADMIN' || role === 'OWNER') &&
+    currentStatus === 'COMPLETED'
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -301,11 +552,20 @@ function AssignmentCard({
                 ? ` · ${assignment.service_code}`
                 : ''}
               {assignment.service_category
-                ? ` · ${assignment.service_category === 'CAR_WASH'
-                    ? 'Car wash'
-                    : 'Detailing'}`
+                ? ` · ${
+                    assignment.service_category === 'CAR_WASH'
+                      ? 'Car wash'
+                      : 'Detailing'
+                  }`
                 : ''}
             </p>
+
+            {role === 'OWNER' && (
+              <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                <Building2 size={13} />
+                {assignment.branch_name || `Branch #${assignment.branch_id}`}
+              </p>
+            )}
           </div>
         </div>
 
@@ -334,7 +594,7 @@ function AssignmentCard({
             {formatDateTime(assignment.assigned_at)}
           </p>
           <p className="text-xs text-slate-500">
-            By {assignment.assigned_by_name || 'Supervisor'}
+            By {assignment.assigned_by_name || 'Staff member'}
           </p>
         </div>
 
@@ -345,7 +605,7 @@ function AssignmentCard({
               {formatDateTime(assignment.completed_at)}
             </p>
             <p className="text-xs text-slate-500">
-              Confirmed by {assignment.completed_by_name || 'Employee'}
+              Confirmed by {assignment.completed_by_name || 'Staff member'}
             </p>
           </div>
         )}
@@ -399,11 +659,50 @@ function AssignmentCard({
           </button>
         </div>
       )}
+
+      {canCorrect && (
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={() => onOpenCorrection(assignment)}
+            disabled={actionBusy}
+            className="inline-flex items-center justify-center rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-800 hover:bg-purple-100 disabled:opacity-50"
+          >
+            <ShieldCheck size={16} className="mr-2" />
+            Correct employee
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onViewCorrectionHistory(assignment)}
+            disabled={actionBusy}
+            className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Eye size={16} className="mr-2" />
+            View correction history
+          </button>
+        </div>
+      )}
     </article>
   )
 }
 
+// --------------------------------------------------
+// MAIN PAGE
+// --------------------------------------------------
+
 export default function MonitorAssignmentsPage() {
+  const { user } = useAuth()
+
+  const role = user?.is_superuser
+    ? 'OWNER'
+    : String(user?.role || '').toUpperCase()
+
+  const isSupervisor = role === 'SUPERVISOR'
+  const isAdmin = role === 'ADMIN'
+  const isOwner = role === 'OWNER'
+  const canCorrect = isAdmin || isOwner
+
   const [assignments, setAssignments] = useState([])
   const [branchName, setBranchName] = useState('')
 
@@ -417,14 +716,25 @@ export default function MonitorAssignmentsPage() {
   const [search, setSearch] = useState('')
 
   const [staff, setStaff] = useState([])
-  const [staffLoaded, setStaffLoaded] = useState(false)
   const [loadingStaff, setLoadingStaff] = useState(false)
 
   const [reassignTarget, setReassignTarget] = useState(null)
+  const [correctionTarget, setCorrectionTarget] = useState(null)
+
   const [newStaffId, setNewStaffId] = useState('')
   const [reassignReason, setReassignReason] = useState('')
 
+  const [correctionStaffId, setCorrectionStaffId] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
+
+  const [correctionHistory, setCorrectionHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
   const [busyAssignmentId, setBusyAssignmentId] = useState(null)
+
+  // --------------------------------------------------
+  // LOAD ASSIGNMENTS
+  // --------------------------------------------------
 
   const loadAssignments = useCallback(async (showRefresh = false) => {
     if (showRefresh) {
@@ -454,6 +764,10 @@ export default function MonitorAssignmentsPage() {
     loadAssignments()
   }, [loadAssignments])
 
+  // --------------------------------------------------
+  // SUMMARY
+  // --------------------------------------------------
+
   const summary = useMemo(() => {
     const active = assignments.filter(
       (item) => getAssignmentStatus(item) === 'ACTIVE'
@@ -474,6 +788,10 @@ export default function MonitorAssignmentsPage() {
       removed,
     }
   }, [assignments])
+
+  // --------------------------------------------------
+  // SEARCH AND FILTER
+  // --------------------------------------------------
 
   const filteredAssignments = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -498,6 +816,9 @@ export default function MonitorAssignmentsPage() {
         assignment.staff_name,
         assignment.staff_number,
         assignment.visit_id,
+        assignment.branch_name,
+        assignment.branch_id,
+        assignment.assigned_by_name,
       ]
         .filter(Boolean)
         .join(' ')
@@ -507,19 +828,33 @@ export default function MonitorAssignmentsPage() {
     })
   }, [assignments, search, statusFilter])
 
-  const loadBranchStaff = async () => {
-    if (staffLoaded) return
+  // --------------------------------------------------
+  // LOAD STAFF FOR THE RELEVANT BRANCH
+  // --------------------------------------------------
 
+  const loadStaffForAssignment = async (assignment) => {
     setLoadingStaff(true)
+    setStaff([])
 
     try {
-      const result = await getBranchStaff()
-      setStaff(result.filter(
+      const params = {}
+
+      // ADMIN and OWNER must load employees from the assignment's branch.
+      // Supervisors are automatically restricted by the backend.
+      if (canCorrect) {
+        params.branch_id = assignment.branch_id
+      }
+
+      const result = await getBranchStaff(params)
+
+      const activeStaff = result.filter(
         (member) =>
           member.employment_status === 'ACTIVE' &&
           !member.is_archived
-      ))
-      setStaffLoaded(true)
+      )
+
+      setStaff(activeStaff)
+      return activeStaff
     } catch (loadError) {
       setError(getErrorMessage(loadError))
       throw loadError
@@ -528,15 +863,22 @@ export default function MonitorAssignmentsPage() {
     }
   }
 
+  // --------------------------------------------------
+  // SUPERVISOR REASSIGNMENT
+  // --------------------------------------------------
+
   const handleOpenReassign = async (assignment) => {
     setError('')
     setSuccess('')
+
+    setCorrectionTarget(null)
     setReassignTarget(assignment)
+
     setNewStaffId('')
     setReassignReason('')
 
     try {
-      await loadBranchStaff()
+      await loadStaffForAssignment(assignment)
     } catch {
       setReassignTarget(null)
     }
@@ -548,10 +890,15 @@ export default function MonitorAssignmentsPage() {
     setReassignTarget(null)
     setNewStaffId('')
     setReassignReason('')
+    setStaff([])
   }
 
   const handleReassign = async () => {
-    if (!reassignTarget || !newStaffId || reassignReason.trim().length < 3) {
+    if (
+      !reassignTarget ||
+      !newStaffId ||
+      reassignReason.trim().length < 3
+    ) {
       setError('Select a replacement employee and provide a reason.')
       return
     }
@@ -572,6 +919,7 @@ export default function MonitorAssignmentsPage() {
       setReassignTarget(null)
       setNewStaffId('')
       setReassignReason('')
+      setStaff([])
 
       setSuccess(result.detail || 'Assignment reassigned successfully.')
       await loadAssignments(true)
@@ -581,6 +929,10 @@ export default function MonitorAssignmentsPage() {
       setBusyAssignmentId(null)
     }
   }
+
+  // --------------------------------------------------
+  // SUPERVISOR COMPLETE
+  // --------------------------------------------------
 
   const handleComplete = async (assignment) => {
     const confirmed = window.confirm(
@@ -604,6 +956,10 @@ export default function MonitorAssignmentsPage() {
       setBusyAssignmentId(null)
     }
   }
+
+  // --------------------------------------------------
+  // SUPERVISOR REMOVE
+  // --------------------------------------------------
 
   const handleRemove = async (assignment) => {
     const reason = window.prompt(
@@ -636,7 +992,157 @@ export default function MonitorAssignmentsPage() {
     }
   }
 
+  // --------------------------------------------------
+  // ADMIN / OWNER OPEN CORRECTION
+  // --------------------------------------------------
+
+  const handleOpenCorrection = async (assignment) => {
+    setError('')
+    setSuccess('')
+
+    setReassignTarget(null)
+    setCorrectionTarget(assignment)
+
+    setCorrectionStaffId('')
+    setCorrectionReason('')
+    setCorrectionHistory([])
+
+    setLoadingHistory(true)
+
+    try {
+      await Promise.all([
+        loadStaffForAssignment(assignment),
+        getAssignmentCorrections(assignment.id).then((result) => {
+          setCorrectionHistory(result.corrections || [])
+        }),
+      ])
+    } catch (loadError) {
+      setError(getErrorMessage(loadError))
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  // --------------------------------------------------
+  // VIEW CORRECTION HISTORY
+  // --------------------------------------------------
+
+  const handleViewCorrectionHistory = async (assignment) => {
+    setError('')
+    setSuccess('')
+
+    setReassignTarget(null)
+    setCorrectionTarget(assignment)
+
+    setCorrectionStaffId('')
+    setCorrectionReason('')
+    setCorrectionHistory([])
+
+    setLoadingHistory(true)
+    setLoadingStaff(false)
+    setStaff([])
+
+    try {
+      const result = await getAssignmentCorrections(assignment.id)
+
+      setCorrectionHistory(result.corrections || [])
+    } catch (loadError) {
+      setError(getErrorMessage(loadError))
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  const handleCancelCorrection = () => {
+    if (busyAssignmentId !== null) return
+
+    setCorrectionTarget(null)
+    setCorrectionStaffId('')
+    setCorrectionReason('')
+    setCorrectionHistory([])
+    setStaff([])
+  }
+
+  // --------------------------------------------------
+  // ADMIN / OWNER SAVE CORRECTION
+  // --------------------------------------------------
+
+  const handleCorrectAssignment = async () => {
+    if (
+      !correctionTarget ||
+      !correctionStaffId ||
+      correctionReason.trim().length < 3
+    ) {
+      setError('Select an employee and provide a meaningful correction reason.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Correct the completed assignment for ${correctionTarget.service_name}?\n\nThe recorded employee will change, but the original completion time and confirmation will be preserved.`
+    )
+
+    if (!confirmed) return
+
+    setBusyAssignmentId(correctionTarget.id)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await correctCompletedAssignment(
+        correctionTarget.id,
+        {
+          new_staff_id: Number(correctionStaffId),
+          reason: correctionReason.trim(),
+        }
+      )
+
+      setCorrectionHistory((previous) => [
+        result.correction,
+        ...previous,
+      ])
+
+      setCorrectionStaffId('')
+      setCorrectionReason('')
+
+      setSuccess(
+        result.detail || 'Completed assignment corrected successfully.'
+      )
+
+      await loadAssignments(true)
+    } catch (actionError) {
+      setError(getErrorMessage(actionError))
+    } finally {
+      setBusyAssignmentId(null)
+    }
+  }
+
+  // --------------------------------------------------
+  // ROLE-SPECIFIC PAGE CONTENT
+  // --------------------------------------------------
+
+  const pageTitle = isOwner
+    ? 'All Branch Assignments'
+    : isAdmin
+      ? 'Branch Assignment Monitoring'
+      : 'Monitor Assignments'
+
+  const pageDescription = isOwner
+    ? 'Monitor service assignments across all branches.'
+    : isAdmin
+      ? `Monitor all service assignments in ${branchName || 'your branch'}.`
+      : `Review and manage service assignments you created${
+          branchName ? ` at ${branchName}` : ''
+        }.`
+
+  const totalDescription = isSupervisor
+    ? 'Assignment records you created'
+    : 'Assignment records in your access scope'
+
   const filteredCount = filteredAssignments.length
+
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -648,11 +1154,16 @@ export default function MonitorAssignmentsPage() {
 
           <div>
             <h1 className="text-2xl font-bold text-slate-900">
-              Monitor Assignments
+              {pageTitle}
             </h1>
+
             <p className="mt-1 text-sm text-slate-500">
-              Review and manage service assignments you created
-              {branchName ? ` at ${branchName}` : ''}.
+              {pageDescription}
+            </p>
+
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              {roleLabels[role] || 'Staff'}
+              {branchName ? ` · ${branchName}` : ''}
             </p>
           </div>
         </div>
@@ -676,6 +1187,7 @@ export default function MonitorAssignmentsPage() {
         <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <p>{error}</p>
+
           <button
             type="button"
             onClick={() => setError('')}
@@ -691,6 +1203,7 @@ export default function MonitorAssignmentsPage() {
         <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
           <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
           <p>{success}</p>
+
           <button
             type="button"
             onClick={() => setSuccess('')}
@@ -707,7 +1220,7 @@ export default function MonitorAssignmentsPage() {
           label="Total assignments"
           value={summary.total}
           icon={ClipboardList}
-          description="All assignment records you created"
+          description={totalDescription}
         />
 
         <SummaryCard
@@ -748,7 +1261,7 @@ export default function MonitorAssignmentsPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Vehicle registration, employee, service or visit number"
+                placeholder="Vehicle, employee, service, branch or visit number"
                 className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500"
               />
             </div>
@@ -773,15 +1286,14 @@ export default function MonitorAssignmentsPage() {
         </div>
 
         <p className="mt-3 text-xs text-slate-500">
-          Showing {filteredCount} of {assignments.length} assignments created
-          by you.
+          Showing {filteredCount} of {assignments.length} assignments.
         </p>
       </section>
 
       {loading ? (
         <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-slate-600">
           <Loader2 size={22} className="mr-3 animate-spin" />
-          Loading your assignments...
+          Loading assignments...
         </div>
       ) : filteredAssignments.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center">
@@ -796,7 +1308,7 @@ export default function MonitorAssignmentsPage() {
 
           <p className="mt-1 text-sm text-slate-500">
             {assignments.length === 0
-              ? 'Assignments you create through Check-in will appear here.'
+              ? 'Assignments will appear here when they are created.'
               : 'Try changing the search term or status filter.'}
           </p>
         </div>
@@ -806,9 +1318,12 @@ export default function MonitorAssignmentsPage() {
             <div key={assignment.id}>
               <AssignmentCard
                 assignment={assignment}
+                role={role}
                 onComplete={handleComplete}
                 onRemove={handleRemove}
                 onOpenReassign={handleOpenReassign}
+                onOpenCorrection={handleOpenCorrection}
+                onViewCorrectionHistory={handleViewCorrectionHistory}
                 actionBusy={busyAssignmentId === assignment.id}
               />
 
@@ -826,6 +1341,24 @@ export default function MonitorAssignmentsPage() {
                   onSubmit={handleReassign}
                 />
               )}
+
+              {canCorrect &&
+                correctionTarget?.id === assignment.id && (
+                  <CorrectionPanel
+                    assignment={assignment}
+                    staff={staff}
+                    loadingStaff={loadingStaff}
+                    loadingHistory={loadingHistory}
+                    history={correctionHistory}
+                    saving={busyAssignmentId === assignment.id}
+                    selectedStaffId={correctionStaffId}
+                    reason={correctionReason}
+                    onStaffChange={setCorrectionStaffId}
+                    onReasonChange={setCorrectionReason}
+                    onCancel={handleCancelCorrection}
+                    onSubmit={handleCorrectAssignment}
+                  />
+                )}
             </div>
           ))}
         </section>
@@ -833,11 +1366,13 @@ export default function MonitorAssignmentsPage() {
 
       <div className="flex items-start gap-2 rounded-lg bg-slate-100 p-3 text-xs text-slate-600">
         <CarFront size={16} className="mt-0.5 shrink-0" />
+
         <p>
-          This page displays assignments created by your supervisor account
-          within your assigned branch. Reassignment and removal preserve the
-          original assignment record. Completed work cannot be reassigned or
-          removed.
+          {isSupervisor
+            ? 'You can monitor and manage assignments you created within your assigned branch. You can reassign, complete or remove active unfinished assignments. Completed assignments cannot be changed by supervisors.'
+            : isAdmin
+              ? 'You can monitor all assignments in your assigned branch. You can correct completed assignment employee records. Every correction is recorded in the audit history.'
+              : 'You can monitor assignments across all branches. You can correct completed assignment employee records. Every correction is recorded in the audit history.'}
         </p>
       </div>
     </div>

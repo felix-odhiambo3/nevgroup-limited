@@ -99,7 +99,7 @@ export const removeStaffAssignment = async (
 }
 
 // --------------------------------------------------
-// SUPERVISOR - MONITOR ASSIGNMENTS
+// ASSIGNMENT MONITORING
 // --------------------------------------------------
 
 export const getSupervisorAssignments = async (params = {}) => {
@@ -145,7 +145,31 @@ export const removeSupervisorAssignment = async (
 }
 
 // --------------------------------------------------
-// MYDAY - CLEANER WORKSPACE
+// ADMIN / OWNER - COMPLETED ASSIGNMENT CORRECTIONS
+// --------------------------------------------------
+
+export const getAssignmentCorrections = async (assignmentId) => {
+  const response = await api.get(
+    `visits/assignments/${assignmentId}/corrections/`
+  )
+
+  return response.data
+}
+
+export const correctCompletedAssignment = async (
+  assignmentId,
+  correctionData
+) => {
+  const response = await api.post(
+    `visits/assignments/${assignmentId}/corrections/`,
+    correctionData
+  )
+
+  return response.data
+}
+
+// --------------------------------------------------
+// MY DAY - CLEANER WORKSPACE
 // --------------------------------------------------
 
 export const getMyDay = async () => {

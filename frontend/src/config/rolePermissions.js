@@ -13,27 +13,22 @@ export const ROLE_DETAILS = Object.freeze({
     label: 'Owner',
     defaultRoute: '/dashboard',
   },
-
   [ROLES.ADMIN]: {
     label: 'Administrator',
     defaultRoute: '/dashboard',
   },
-
   [ROLES.SUPERVISOR]: {
     label: 'Supervisor',
     defaultRoute: '/dashboard',
   },
-
   [ROLES.ACCOUNTS]: {
     label: 'Accounts',
     defaultRoute: '/dashboard',
   },
-
   [ROLES.CLEANER]: {
     label: 'Cleaner',
     defaultRoute: '/my-day',
   },
-
   [ROLES.DETAILER]: {
     label: 'Detailer',
     defaultRoute: '/dashboard',
@@ -85,6 +80,8 @@ export const ROUTE_PERMISSIONS = Object.freeze({
   ],
 
   '/monitor-assignments': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
 })
@@ -252,6 +249,8 @@ export const ACTION_PERMISSIONS = Object.freeze({
   ],
 
   'assignments.monitor': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
 
@@ -261,6 +260,16 @@ export const ACTION_PERMISSIONS = Object.freeze({
 
   'assignments.completeBySupervisor': [
     ROLES.SUPERVISOR,
+  ],
+
+  'assignments.correctCompleted': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+  ],
+
+  'assignments.viewCorrectionHistory': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
   ],
 
   // Services and pricing
@@ -303,13 +312,16 @@ export const ACTION_PERMISSIONS = Object.freeze({
 })
 
 /*
- * Convert a user's role into a consistent uppercase value.
- * Superusers are treated as OWNER for the frontend workspace.
+ * Normalize user role.
+ * Superusers are treated as OWNER.
  */
 export function getUserRole(user) {
   if (!user) return null
 
-  if (user.is_superuser === true || user.isSuperuser === true) {
+  if (
+    user.is_superuser === true ||
+    user.isSuperuser === true
+  ) {
     return ROLES.OWNER
   }
 
@@ -326,16 +338,10 @@ export function getUserRole(user) {
     : null
 }
 
-/*
- * Check whether the authenticated user has a recognized role.
- */
 export function hasValidRole(user) {
   return getUserRole(user) !== null
 }
 
-/*
- * Check whether a user can access a frontend route.
- */
 export function canAccessRoute(user, path) {
   const role = getUserRole(user)
 
@@ -348,9 +354,6 @@ export function canAccessRoute(user, path) {
   return allowedRoles.includes(role)
 }
 
-/*
- * Check whether a user can perform a particular action.
- */
 export function canPerform(user, action) {
   const role = getUserRole(user)
 
@@ -363,9 +366,6 @@ export function canPerform(user, action) {
   return allowedRoles.includes(role)
 }
 
-/*
- * Return the default landing page for the user's role.
- */
 export function getDefaultRoute(user) {
   const role = getUserRole(user)
 
@@ -374,9 +374,6 @@ export function getDefaultRoute(user) {
   return ROLE_DETAILS[role]?.defaultRoute || '/dashboard'
 }
 
-/*
- * Return the display name for a user's role.
- */
 export function getRoleLabel(user) {
   const role = getUserRole(user)
 

@@ -33,14 +33,14 @@ const workspaceDetails = {
   [ROLES.ADMIN]: {
     heading: 'Administration Workspace',
     description:
-      'Manage staff, monitor attendance and coordinate carwash operations.',
+      'Manage staff, monitor attendance, review assignments and coordinate carwash operations.',
     icon: BriefcaseBusiness,
   },
 
   [ROLES.SUPERVISOR]: {
     heading: 'Branch Operations',
     description:
-      'Manage your permitted operational activities and monitor attendance for your branch.',
+      'Manage your permitted operational activities and monitor attendance and service assignments for your branch.',
     icon: ClipboardCheck,
   },
 
@@ -73,6 +73,14 @@ const workspaceLinks = [
       'View your assigned work, completed assignments, daily summary and anonymous team ranking.',
     path: '/my-day',
     icon: ClipboardList,
+  },
+
+  {
+    title: 'Monitor Assignments',
+    description:
+      'Review service assignments, completion status, employee allocations and correction history.',
+    path: '/monitor-assignments',
+    icon: ClipboardCheck,
   },
 
   {
