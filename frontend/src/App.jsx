@@ -21,7 +21,10 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import StaffPage from './pages/StaffPage'
 import AttendancePage from './pages/AttendancePage'
+import MyAttendancePage from './pages/MyAttendancePage'
+import MyDayPage from './pages/MyDayPage'
 import CheckInPage from './pages/CheckInPage'
+import MonitorAssignmentsPage from './pages/MonitorAssignmentsPage'
 
 import MainLayout from './components/layout/MainLayout'
 
@@ -29,7 +32,7 @@ function LoadingScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100">
       <div className="text-center">
-        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-red-600 border-t-transparent" />
 
         <p className="font-semibold text-slate-700">
           Loading NEV CARWASH...
@@ -121,8 +124,23 @@ function AppRoutes() {
         />
 
         <Route
+          path="/my-attendance"
+          element={<MyAttendancePage />}
+        />
+
+        <Route
+          path="/my-day"
+          element={<MyDayPage />}
+        />
+
+        <Route
           path="/check-in"
           element={<CheckInPage />}
+        />
+
+        <Route
+          path="/monitor-assignments"
+          element={<MonitorAssignmentsPage />}
         />
       </Route>
 

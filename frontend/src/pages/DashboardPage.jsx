@@ -10,6 +10,7 @@ import {
   Wallet,
   UserRound,
   BriefcaseBusiness,
+  ClipboardList,
 } from 'lucide-react'
 
 import { useAuth } from '../features/auth/AuthContext'
@@ -51,9 +52,9 @@ const workspaceDetails = {
   },
 
   [ROLES.CLEANER]: {
-    heading: 'My Work',
+    heading: 'MyDay - Cleaner Workspace',
     description:
-      'Your personal assignment workspace is being prepared. It will show only work assigned to you and your individual completion status.',
+      'View your assigned services, confirm completed work, track your daily performance and compare your anonymous team ranking.',
     icon: UserRound,
   },
 
@@ -67,20 +68,32 @@ const workspaceDetails = {
 
 const workspaceLinks = [
   {
+    title: 'MyDay',
+    description:
+      'View your assigned work, completed assignments, daily summary and anonymous team ranking.',
+    path: '/my-day',
+    icon: ClipboardList,
+  },
+
+  {
     title: 'Staff Management',
     description: 'View and manage staff accounts and employee records.',
     path: '/staff',
     icon: Users,
   },
+
   {
     title: 'Attendance & Shifts',
-    description: 'Monitor attendance, shifts and authorized attendance actions.',
+    description:
+      'Monitor attendance, shifts and authorized attendance actions.',
     path: '/attendance',
     icon: ClipboardCheck,
   },
+
   {
     title: 'Vehicle Check-in',
-    description: 'Register eligible vehicles and create service visits.',
+    description:
+      'Register eligible vehicles and create service visits.',
     path: '/check-in',
     icon: CarFront,
   },
@@ -136,6 +149,16 @@ export default function DashboardPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               {details?.description}
             </p>
+
+            {role === ROLES.CLEANER && (
+              <Link
+                to="/my-day"
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-red-700"
+              >
+                Open MyDay
+                <ArrowRight size={16} />
+              </Link>
+            )}
           </div>
         </div>
       </section>
@@ -160,9 +183,9 @@ export default function DashboardPage() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
+                  className="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-red-300 hover:shadow-md"
                 >
-                  <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-lg bg-red-50 text-red-600">
                     <Icon size={22} />
                   </div>
 
@@ -174,7 +197,7 @@ export default function DashboardPage() {
                     {item.description}
                   </p>
 
-                  <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-blue-600">
+                  <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-red-600">
                     Open workspace
                     <ArrowRight
                       size={16}
@@ -196,7 +219,6 @@ export default function DashboardPage() {
 
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Only features that are ready and authorized for your role will appear here.
-            You will see your available work tools as their workflows are implemented.
           </p>
         </section>
       )}
@@ -211,6 +233,7 @@ export default function DashboardPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Username
             </p>
+
             <p className="mt-1 font-medium text-slate-900">
               {user?.username || 'Not available'}
             </p>
@@ -220,6 +243,7 @@ export default function DashboardPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Email
             </p>
+
             <p className="mt-1 font-medium text-slate-900">
               {user?.email || 'Not provided'}
             </p>
@@ -229,6 +253,7 @@ export default function DashboardPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Account Role
             </p>
+
             <p className="mt-1 font-medium text-slate-900">
               {roleLabel}
             </p>

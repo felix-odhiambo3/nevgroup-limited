@@ -7,16 +7,20 @@ import Topbar from './Topbar'
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
+  '/my-day': 'MyDay',
   '/staff': 'Staff Management',
   '/attendance': 'Attendance & Shifts',
+  '/my-attendance': 'My Attendance',
   '/check-in': 'Vehicle Check-in',
+  '/monitor-assignments': 'Monitor Assignments',
 }
 
 export default function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
 
-  const pageTitle = pageTitles[location.pathname] || 'NEV CARWASH'
+  const pageTitle =
+    pageTitles[location.pathname] || 'NEV CARWASH'
 
   return (
     <div className="flex min-h-screen bg-slate-100">

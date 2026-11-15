@@ -4,7 +4,6 @@ import api from './client'
 // Retrieve all staff members.
 export const getStaff = async () => {
   const response = await api.get('staff/')
-
   return Array.isArray(response.data)
     ? response.data
     : response.data.results || []
@@ -24,20 +23,13 @@ export const getStaffMember = async (staffId) => {
 
 // Update editable staff profile information.
 export const updateStaff = async (staffId, staffData) => {
-  const response = await api.patch(
-    `staff/${staffId}/`,
-    staffData
-  )
-
+  const response = await api.patch(`staff/${staffId}/`, staffData)
   return response.data
 }
 
 // Retrieve a staff member's shift history.
 export const getStaffShiftHistory = async (staffId) => {
-  const response = await api.get(
-    `staff/${staffId}/shifts/`
-  )
-
+  const response = await api.get(`staff/${staffId}/shifts/`)
   return Array.isArray(response.data)
     ? response.data
     : response.data.results || []
@@ -49,26 +41,37 @@ export const changeStaffShift = async (staffId, shiftData) => {
     `staff/${staffId}/shifts/change/`,
     shiftData
   )
-
   return response.data
 }
 
-// Activate, deactivate, or archive a staff member.
+// Activate, deactivate, suspend, or archive a staff member.
 export const updateStaffStatus = async (staffId, statusData) => {
-  const response = await api.post(
-    `staff/${staffId}/status/`,
-    statusData
-  )
-
+  const response = await api.post(`staff/${staffId}/status/`, statusData)
   return response.data
 }
 
 // Retrieve a staff member's status history.
 export const getStaffStatusHistory = async (staffId) => {
-  const response = await api.get(
-    `staff/${staffId}/status-history/`
-  )
+  const response = await api.get(`staff/${staffId}/status-history/`)
+  return Array.isArray(response.data)
+    ? response.data
+    : response.data.results || []
+}
 
+// Update a user's role. A reason is required when the role changes.
+export const updateStaffRole = async (userId, roleData) => {
+  const response = await api.patch(
+    `auth/users/${userId}/`,
+    roleData
+  )
+  return response.data
+}
+
+// Retrieve a user's role-change audit history.
+export const getStaffRoleHistory = async (userId) => {
+  const response = await api.get(
+    `auth/users/${userId}/role-history/`
+  )
   return Array.isArray(response.data)
     ? response.data
     : response.data.results || []

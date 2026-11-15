@@ -8,6 +8,8 @@ import {
   CarFront,
   Building2,
   X,
+  Clock,
+  ClipboardList,
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
@@ -24,19 +26,40 @@ const navigation = [
       },
     ],
   },
+
   {
     title: 'OPERATIONS',
     items: [
+      {
+        name: 'MyDay',
+        path: '/my-day',
+        icon: ClipboardList,
+      },
+
+      {
+        name: 'Monitor Assignments',
+        path: '/monitor-assignments',
+        icon: ClipboardCheck,
+      },
+
       {
         name: 'Staff Management',
         path: '/staff',
         icon: Users,
       },
+
+      {
+        name: 'My Attendance',
+        path: '/my-attendance',
+        icon: Clock,
+      },
+
       {
         name: 'Attendance & Shifts',
         path: '/attendance',
         icon: ClipboardCheck,
       },
+
       {
         name: 'Check-in',
         path: '/check-in',
@@ -118,7 +141,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
                     className={({ isActive }) =>
                       `flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors ${
                         isActive
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-red-600 text-white shadow-sm'
                           : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                       }`
                     }

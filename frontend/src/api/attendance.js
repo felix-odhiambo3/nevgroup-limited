@@ -1,6 +1,41 @@
 
 import api from './client'
 
+// Retrieve the signed-in employee's current attendance.
+export const getMyAttendance = async () => {
+  const response = await api.get('attendance/me/')
+  return response.data
+}
+
+// Employee GPS-verified clock-in.
+export const clockInAttendance = async (location) => {
+  const response = await api.post(
+    'attendance/clock-in/',
+    {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracy: location.accuracy,
+    }
+  )
+
+  return response.data
+}
+
+// Employee GPS-verified clock-out.
+export const clockOutAttendance = async (location) => {
+  const response = await api.post(
+    'attendance/clock-out/',
+    {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      accuracy: location.accuracy,
+    }
+  )
+
+  return response.data
+}
+
+
 // Retrieve attendance override requests.
 // Optional filters: { status: 'PENDING' | 'APPROVED' | 'REJECTED' }
 export const getAttendanceOverrides = async (filters = {}) => {
@@ -13,6 +48,7 @@ export const getAttendanceOverrides = async (filters = {}) => {
     : response.data.results || []
 }
 
+
 // Create a supervisor-assisted clock-in or clock-out request.
 export const createAttendanceOverride = async (requestData) => {
   const response = await api.post(
@@ -23,6 +59,7 @@ export const createAttendanceOverride = async (requestData) => {
   return response.data
 }
 
+
 // Retrieve one override request.
 export const getAttendanceOverride = async (requestId) => {
   const response = await api.get(
@@ -32,7 +69,8 @@ export const getAttendanceOverride = async (requestId) => {
   return response.data
 }
 
-// Approve or reject an override request.
+
+// Approve or reject an attendance override request.
 export const reviewAttendanceOverride = async (
   requestId,
   reviewData
@@ -45,6 +83,7 @@ export const reviewAttendanceOverride = async (
   return response.data
 }
 
+
 // Execute an approved assisted attendance action.
 export const executeAttendanceOverride = async (requestId) => {
   const response = await api.post(
@@ -53,6 +92,7 @@ export const executeAttendanceOverride = async (requestId) => {
 
   return response.data
 }
+
 
 // Retrieve the audit history for an override request.
 export const getAttendanceOverrideAudit = async (requestId) => {
@@ -64,6 +104,7 @@ export const getAttendanceOverrideAudit = async (requestId) => {
     ? response.data
     : response.data.results || []
 }
+
 
 // Retrieve shift instances.
 // Optional filters: { branch: 1, work_date: '2026-11-10', status: 'IN_PROGRESS' }

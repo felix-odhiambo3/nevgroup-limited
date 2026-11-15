@@ -13,22 +13,27 @@ export const ROLE_DETAILS = Object.freeze({
     label: 'Owner',
     defaultRoute: '/dashboard',
   },
+
   [ROLES.ADMIN]: {
     label: 'Administrator',
     defaultRoute: '/dashboard',
   },
+
   [ROLES.SUPERVISOR]: {
     label: 'Supervisor',
     defaultRoute: '/dashboard',
   },
+
   [ROLES.ACCOUNTS]: {
     label: 'Accounts',
     defaultRoute: '/dashboard',
   },
+
   [ROLES.CLEANER]: {
     label: 'Cleaner',
-    defaultRoute: '/dashboard',
+    defaultRoute: '/my-day',
   },
+
   [ROLES.DETAILER]: {
     label: 'Detailer',
     defaultRoute: '/dashboard',
@@ -36,8 +41,8 @@ export const ROLE_DETAILS = Object.freeze({
 })
 
 /*
- * Routes that currently exist in the frontend.
- * Do not add unfinished modules as accessible pages.
+ * Frontend route visibility.
+ * Backend permissions remain authoritative.
  */
 export const ROUTE_PERMISSIONS = Object.freeze({
   '/dashboard': [
@@ -60,11 +65,27 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.SUPERVISOR,
   ],
 
-  '/check-in': [
+  '/my-attendance': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
+    ROLES.ACCOUNTS,
+    ROLES.CLEANER,
     ROLES.DETAILER,
+  ],
+
+  '/my-day': [
+    ROLES.CLEANER,
+  ],
+
+  '/check-in': [
+    ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+    ROLES.DETAILER,
+  ],
+
+  '/monitor-assignments': [
+    ROLES.SUPERVISOR,
   ],
 })
 
@@ -79,10 +100,12 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.OWNER,
     ROLES.ADMIN,
   ],
+
   'staff.register': [
     ROLES.OWNER,
     ROLES.ADMIN,
   ],
+
   'staff.update': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -94,16 +117,36 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
   ],
 
-  // Attendance
+  // Attendance management
   'attendance.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
+
   'attendance.manage': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
+  ],
+
+  // Personal attendance
+  'attendance.self': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+    ROLES.ACCOUNTS,
+    ROLES.CLEANER,
+    ROLES.DETAILER,
+  ],
+
+  // MyDay
+  'myDay.view': [
+    ROLES.CLEANER,
+  ],
+
+  'myDay.completeAssignment': [
+    ROLES.CLEANER,
   ],
 
   // Vehicles
@@ -115,11 +158,13 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'vehicles.register': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
     ROLES.DETAILER,
   ],
+
   'vehicles.update': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
@@ -134,6 +179,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'vehicleCategories.create': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
@@ -146,6 +192,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.SUPERVISOR,
     ROLES.ACCOUNTS,
   ],
+
   'customers.manage': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
@@ -160,6 +207,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'visits.create': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -176,6 +224,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'visitServices.add': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
@@ -191,12 +240,26 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'assignments.create': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
+
   'assignments.remove': [
     ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+  ],
+
+  'assignments.monitor': [
+    ROLES.SUPERVISOR,
+  ],
+
+  'assignments.reassign': [
+    ROLES.SUPERVISOR,
+  ],
+
+  'assignments.completeBySupervisor': [
     ROLES.SUPERVISOR,
   ],
 
@@ -209,6 +272,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+
   'services.manage': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -220,6 +284,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
     ROLES.ACCOUNTS,
   ],
+
   'creditAccounts.manage': [
     ROLES.ADMIN,
   ],
@@ -230,6 +295,7 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
     ROLES.ACCOUNTS,
   ],
+
   'creditLedger.recordPayment': [
     ROLES.ADMIN,
     ROLES.ACCOUNTS,
