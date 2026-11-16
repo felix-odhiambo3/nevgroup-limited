@@ -123,9 +123,16 @@ export default function DashboardPage() {
   const details = workspaceDetails[role]
   const WorkspaceIcon = details?.icon || BriefcaseBusiness
 
-  const availableLinks = workspaceLinks.filter((item) =>
-    canAccessRoute(user, item.path)
-  )
+  const availableLinks = workspaceLinks
+    .filter((item) => canAccessRoute(user, item.path))
+    .sort((a, b) => {
+      if (role !== ROLES.SUPERVISOR) return 0
+
+      if (a.path === '/check-in') return -1
+      if (b.path === '/check-in') return 1
+
+      return 0
+    })
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">

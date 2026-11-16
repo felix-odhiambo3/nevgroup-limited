@@ -13,7 +13,12 @@ import {
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
-import { canAccessRoute } from '../../config/rolePermissions'
+
+import {
+  ROLES,
+  getUserRole,
+  canAccessRoute,
+} from '../../config/rolePermissions'
 
 const navigation = [
   {
@@ -72,7 +77,26 @@ const navigation = [
 export default function Sidebar({ isOpen = false, onClose }) {
   const { user } = useAuth()
 
-  const visibleGroups = navigation
+  const role = getUserRole(user)
+
+  const roleNavigation =
+    role === ROLES.SUPERVISOR
+      ? navigation
+          .filter((group) => group.title !== 'OVERVIEW')
+          .map((group) => ({
+            ...group,
+            items: [
+              ...group.items.filter(
+                (item) => item.path === '/check-in'
+              ),
+              ...group.items.filter(
+                (item) => item.path !== '/check-in'
+              ),
+            ],
+          }))
+      : navigation
+
+  const visibleGroups = roleNavigation
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>

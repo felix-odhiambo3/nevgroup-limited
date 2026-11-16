@@ -9,26 +9,22 @@ import {
   Loader2,
   Plus,
   Search,
+  Trash2,
   UserPlus,
   Users,
   X,
-  Trash2,
 } from 'lucide-react'
 
 import { useAuth } from '../features/auth/AuthContext'
 
 import {
   getVehicles,
-  registerVehicle,
   getCustomers,
   getVehicleCategories,
   createVehicleCategory,
 } from '../api/vehicles'
 
-import {
-  createVehicleIntakeWorkflow,
-} from '../api/visits'
-
+import { createVehicleIntakeWorkflow } from '../api/visits'
 import { getServices } from '../api/services'
 import { getBranches } from '../api/branches'
 
@@ -65,6 +61,15 @@ const canAssignEmployees = (role) =>
 // --------------------------------------------------
 // HELPERS
 // --------------------------------------------------
+
+const emptyVehicle = {
+  registration_number: '',
+  make_model: '',
+  category: '',
+  no_plastic_mat: false,
+  no_woolen_mat: false,
+  special_concerns: '',
+}
 
 const normalizeRegistration = (value) =>
   String(value ?? '').replace(/\s+/g, '').toUpperCase()
@@ -138,13 +143,54 @@ const getStaffName = (staff) =>
   staff.staff_number ||
   `Staff member #${staff.id}`
 
-const emptyVehicle = {
-  registration_number: '',
-  make_model: '',
-  category: '',
-  no_plastic_mat: false,
-  no_woolen_mat: false,
-  special_concerns: '',
+// --------------------------------------------------
+// SMALL REUSABLE UI COMPONENTS
+// --------------------------------------------------
+
+function Field({ label, required = false, children, hint }) {
+  return (
+    <div className="min-w-0">
+      <label className="mb-1.5 block text-sm font-medium text-slate-700">
+        {label}
+        {required && <span className="ml-1 text-red-600">*</span>}
+      </label>
+
+      {children}
+
+      {hint && (
+        <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      )}
+    </div>
+  )
+}
+
+const inputClass =
+  'w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+
+function SectionHeading({ icon: Icon, title, description, trailing }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start gap-3">
+        {Icon && (
+          <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+            <Icon size={19} />
+          </div>
+        )}
+
+        <div className="min-w-0">
+          <h2 className="font-semibold text-slate-900">{title}</h2>
+
+          {description && (
+            <p className="mt-0.5 text-sm text-slate-500">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {trailing}
+    </div>
+  )
 }
 
 // --------------------------------------------------
@@ -168,32 +214,41 @@ export default function CheckInPage() {
   const [staffProfile, setStaffProfile] = useState(null)
 
   // ------------------------------------------------
-  // FORM STATE
+  // VEHICLE STATE
   // ------------------------------------------------
 
   const [search, setSearch] = useState('')
   const [selectedVehicle, setSelectedVehicle] = useState(null)
   const [newVehicle, setNewVehicle] = useState(emptyVehicle)
-
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
+
+  // ------------------------------------------------
+  // BRANCH STATE
+  // ------------------------------------------------
+
   const [registrationBranchId, setRegistrationBranchId] = useState('')
   const [servicingBranchId, setServicingBranchId] = useState('')
+
+  // ------------------------------------------------
+  // VISIT STATE
+  // ------------------------------------------------
 
   const [plasticMatCount, setPlasticMatCount] = useState('0')
   const [woolenMatCount, setWoolenMatCount] = useState('0')
   const [comment, setComment] = useState('')
 
+  // ------------------------------------------------
+  // SERVICE STATE
+  // ------------------------------------------------
+
   const [selectedServiceId, setSelectedServiceId] = useState('')
   const [selectedServices, setSelectedServices] = useState([])
-
-  const [makeModelSuggestions, setMakeModelSuggestions] = useState([])
 
   // ------------------------------------------------
   // UI STATE
   // ------------------------------------------------
 
   const [loading, setLoading] = useState(true)
-  const [loadingServices, setLoadingServices] = useState(false)
   const [loadingStaff, setLoadingStaff] = useState(false)
   const [searching, setSearching] = useState(false)
   const [searchingModels, setSearchingModels] = useState(false)
@@ -204,8 +259,10 @@ export default function CheckInPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  const [makeModelSuggestions, setMakeModelSuggestions] = useState([])
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [checkInCompleted, setCheckInCompleted] = useState(false)
 
   // ------------------------------------------------
   // DERIVED VALUES
@@ -226,22 +283,44 @@ export default function CheckInPage() {
     !searching &&
     vehicles.length === 0
 
-  const availableServices = useMemo(() => {
-    return services.filter(
-      (service) =>
-        service.is_active &&
-        !selectedServices.some(
-          (item) => Number(item.service.id) === Number(service.id)
-        )
-    )
-  }, [services, selectedServices])
+  const availableServices = useMemo(
+    () =>
+      services.filter(
+        (service) =>
+          service.is_active &&
+          !selectedServices.some(
+            (item) =>
+              Number(item.service.id) === Number(service.id)
+          )
+      ),
+    [services, selectedServices]
+  )
 
-  const selectedServiceTotal = useMemo(() => {
-    return selectedServices.reduce(
-      (total, item) => total + Number(item.service.price || 0),
-      0
-    )
-  }, [selectedServices])
+  const selectedServiceTotal = useMemo(
+    () =>
+      selectedServices.reduce(
+        (total, item) =>
+          total + Number(item.service.price || 0),
+        0
+      ),
+    [selectedServices]
+  )
+
+  const selectedAssignmentCount = useMemo(
+    () =>
+      selectedServices.reduce(
+        (total, item) => total + item.staffIds.length,
+        0
+      ),
+    [selectedServices]
+  )
+
+  const selectedBranchName = canChooseBranch(role)
+    ? branches.find(
+        (branch) =>
+          String(branch.id) === String(servicingBranchId)
+      )?.name || ''
+    : ownBranchName
 
   // ------------------------------------------------
   // LOAD INITIAL DATA
@@ -310,7 +389,9 @@ export default function CheckInPage() {
           }
         }
       } catch (loadError) {
-        if (active) setError(getErrorMessage(loadError))
+        if (active) {
+          setError(getErrorMessage(loadError))
+        }
       } finally {
         if (active) setLoading(false)
       }
@@ -324,7 +405,7 @@ export default function CheckInPage() {
   }, [role])
 
   // ------------------------------------------------
-  // LOAD ELIGIBLE STAFF FOR THE SELECTED BRANCH
+  // LOAD STAFF FOR THE SERVICING BRANCH
   // ------------------------------------------------
 
   useEffect(() => {
@@ -347,15 +428,15 @@ export default function CheckInPage() {
           branch_id: effectiveBranchId,
         })
 
-        if (active) {
-          setBranchStaff(
-            results.filter(
-              (staff) =>
-                staff.employment_status === 'ACTIVE' &&
-                !staff.is_archived
-            )
+        if (!active) return
+
+        setBranchStaff(
+          results.filter(
+            (staff) =>
+              staff.employment_status === 'ACTIVE' &&
+              !staff.is_archived
           )
-        }
+        )
       } catch (loadError) {
         if (active) {
           setBranchStaff([])
@@ -422,7 +503,6 @@ export default function CheckInPage() {
 
   useEffect(() => {
     let active = true
-
     const makeModel = newVehicle.make_model.trim()
 
     if (makeModel.length < 2) {
@@ -442,17 +522,17 @@ export default function CheckInPage() {
           search: makeModel,
         })
 
-        if (active) {
-          const uniqueModels = [
-            ...new Set(
-              results
-                .map((vehicle) => vehicle.make_model?.trim())
-                .filter(Boolean)
-            ),
-          ]
+        if (!active) return
 
-          setMakeModelSuggestions(uniqueModels.slice(0, 15))
-        }
+        const uniqueModels = [
+          ...new Set(
+            results
+              .map((vehicle) => vehicle.make_model?.trim())
+              .filter(Boolean)
+          ),
+        ]
+
+        setMakeModelSuggestions(uniqueModels.slice(0, 15))
       } catch {
         if (active) setMakeModelSuggestions([])
       } finally {
@@ -488,8 +568,8 @@ export default function CheckInPage() {
     setVehicles([])
     setError('')
     setSuccess('')
-    setSelectedServices([])
 
+    // Keep visit details and selected services intact.
     setNewVehicle((current) => ({
       ...current,
       registration_number: registration,
@@ -508,20 +588,20 @@ export default function CheckInPage() {
     setSearch(
       normalizeRegistration(vehicle.registration_number)
     )
+    setVehicles([])
     setError('')
     setSuccess('')
-    setSelectedServices([])
   }
 
   const handleChangeVehicle = () => {
     setSelectedVehicle(null)
     setSearch('')
     setVehicles([])
-    setSelectedServices([])
-    setSelectedCustomerId('')
     setNewVehicle(emptyVehicle)
     setError('')
     setSuccess('')
+
+    // Services, mat counts and visit comments remain unchanged.
   }
 
   // ------------------------------------------------
@@ -553,7 +633,8 @@ export default function CheckInPage() {
 
       setCategories((current) => {
         const exists = current.some(
-          (category) => category.id === createdCategory.id
+          (category) =>
+            Number(category.id) === Number(createdCategory.id)
         )
 
         return exists
@@ -582,7 +663,7 @@ export default function CheckInPage() {
   }
 
   // ------------------------------------------------
-  // ADD / REMOVE SERVICES IN THE LOCAL FORM
+  // SERVICE HANDLERS
   // ------------------------------------------------
 
   const handleAddService = () => {
@@ -595,7 +676,8 @@ export default function CheckInPage() {
     }
 
     const service = services.find(
-      (item) => Number(item.id) === Number(selectedServiceId)
+      (item) =>
+        Number(item.id) === Number(selectedServiceId)
     )
 
     if (!service || !service.is_active) {
@@ -605,7 +687,8 @@ export default function CheckInPage() {
 
     if (
       selectedServices.some(
-        (item) => Number(item.service.id) === Number(service.id)
+        (item) =>
+          Number(item.service.id) === Number(service.id)
       )
     ) {
       setError('This service has already been added.')
@@ -626,47 +709,50 @@ export default function CheckInPage() {
   const handleRemoveService = (serviceId) => {
     setSelectedServices((current) =>
       current.filter(
-        (item) => Number(item.service.id) !== Number(serviceId)
+        (item) =>
+          Number(item.service.id) !== Number(serviceId)
       )
     )
   }
 
-  // ------------------------------------------------
-  // SELECT EMPLOYEES FOR EACH SERVICE
-  // ------------------------------------------------
-
   const handleToggleStaff = (serviceId, staffId) => {
     setSelectedServices((current) =>
       current.map((item) => {
-        if (Number(item.service.id) !== Number(serviceId)) {
+        if (
+          Number(item.service.id) !== Number(serviceId)
+        ) {
           return item
         }
 
-        const currentlySelected = item.staffIds.includes(
-          Number(staffId)
-        )
+        const id = Number(staffId)
+        const alreadySelected = item.staffIds.includes(id)
 
         return {
           ...item,
-          staffIds: currentlySelected
+          staffIds: alreadySelected
             ? item.staffIds.filter(
-                (id) => id !== Number(staffId)
+                (selectedId) => selectedId !== id
               )
-            : [...item.staffIds, Number(staffId)],
+            : [...item.staffIds, id],
         }
       })
     )
   }
 
   // ------------------------------------------------
-  // VALIDATE AND SUBMIT THE WHOLE WORKFLOW
+  // FORM VALIDATION AND SUBMISSION
   // ------------------------------------------------
 
   const handleSubmit = async (event) => {
     event.preventDefault()
 
+    if (submitting) return
+
     setError('')
     setSuccess('')
+
+    // Do not show the completion screen until the API succeeds.
+    setCheckInCompleted(false)
 
     if (!canCreateVisit(role)) {
       setError('Your account cannot create vehicle visits.')
@@ -682,10 +768,7 @@ export default function CheckInPage() {
       return
     }
 
-    if (
-      canChooseBranch(role) &&
-      !servicingBranchId
-    ) {
+    if (canChooseBranch(role) && !servicingBranchId) {
       setError('Select the servicing branch.')
       return
     }
@@ -733,7 +816,9 @@ export default function CheckInPage() {
       !Number.isInteger(woolenCount) ||
       woolenCount < 0
     ) {
-      setError('Mat counts must be whole numbers of zero or greater.')
+      setError(
+        'Mat counts must be whole numbers of zero or greater.'
+      )
       return
     }
 
@@ -746,19 +831,23 @@ export default function CheckInPage() {
     }
 
     if (canAssignEmployees(role)) {
+      if (loadingStaff) {
+        setError(
+          'Wait for the eligible employee list to finish loading.'
+        )
+        return
+      }
+
       const unassignedServices = selectedServices.filter(
         (item) => item.staffIds.length === 0
       )
 
       if (unassignedServices.length > 0) {
         setError(
-          `Assign at least one eligible employee to each service. Awaiting assignment: ${unassignedServices.map((item) => item.service.name).join(', ')}.`
+          `Assign at least one eligible employee to each service. Awaiting assignment: ${unassignedServices
+            .map((item) => item.service.name)
+            .join(', ')}.`
         )
-        return
-      }
-
-      if (loadingStaff) {
-        setError('Wait for the eligible employee list to finish loading.')
         return
       }
 
@@ -784,6 +873,7 @@ export default function CheckInPage() {
       }
     }
 
+    // Preserve the existing backend payload structure.
     const payload = {
       plastic_mat_count: plasticCount,
       woolen_mat_count: woolenCount,
@@ -833,6 +923,9 @@ export default function CheckInPage() {
     try {
       const result = await createVehicleIntakeWorkflow(payload)
 
+      // Only display the completion screen after successful saving.
+      setCheckInCompleted(true)
+
       const vehicleRegistration =
         result.visit?.vehicle_registration ||
         selectedVehicle?.registration_number ||
@@ -841,7 +934,9 @@ export default function CheckInPage() {
       const visitNumber = result.visit?.id
       const serviceCount = result.services?.length || 0
 
-      const assignmentCount = (result.services || []).reduce(
+      const assignmentCount = (
+        result.services || []
+      ).reduce(
         (total, item) =>
           total + (item.assignments?.length || 0),
         0
@@ -855,13 +950,13 @@ export default function CheckInPage() {
         `${vehicleAction} successfully. Visit #${visitNumber} created for ${vehicleRegistration}. ${serviceCount} service(s) and ${assignmentCount} employee assignment(s) saved successfully.`
       )
 
-      // Reset transaction-specific form fields.
+      // Reset only after the backend confirms success.
       setSelectedVehicle(null)
       setVehicles([])
       setSearch('')
       setNewVehicle(emptyVehicle)
-
       setSelectedCustomerId('')
+
       setPlasticMatCount('0')
       setWoolenMatCount('0')
       setComment('')
@@ -872,10 +967,17 @@ export default function CheckInPage() {
       setShowCategoryForm(false)
       setNewCategoryName('')
     } catch (submitError) {
+      setCheckInCompleted(false)
       setError(getErrorMessage(submitError))
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleNewCheckIn = () => {
+    setCheckInCompleted(false)
+    setError('')
+    setSuccess('')
   }
 
   // ------------------------------------------------
@@ -910,37 +1012,40 @@ export default function CheckInPage() {
   // ------------------------------------------------
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <section>
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-            <CarFront size={25} />
-          </div>
+    <div className="mx-auto max-w-5xl space-y-5 pb-8">
+      {/* PAGE HEADER */}
 
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              NEV CARWASH Check-in
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Register or select a vehicle, add services and assign employees
-              in one submission.
-            </p>
-          </div>
+      <header className="flex flex-wrap items-center gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+          <CarFront size={25} />
         </div>
-      </section>
+
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900">
+            NEV CARWASH Check-in
+          </h1>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Enter the vehicle, visit details and required services below.
+          </p>
+        </div>
+      </header>
 
       {/* FEEDBACK */}
 
       {error && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-800"
+        >
           <AlertCircle size={19} className="mt-0.5 shrink-0" />
-          <p>{error}</p>
+
+          <p className="min-w-0 flex-1">{error}</p>
 
           <button
             type="button"
             onClick={() => setError('')}
-            className="ml-auto text-red-700 hover:text-red-900"
+            className="text-red-700 hover:text-red-900"
             aria-label="Dismiss error"
           >
             <X size={17} />
@@ -949,14 +1054,18 @@ export default function CheckInPage() {
       )}
 
       {success && (
-        <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-3.5 text-sm text-green-800"
+        >
           <CheckCircle2 size={19} className="mt-0.5 shrink-0" />
-          <p>{success}</p>
+
+          <p className="min-w-0 flex-1">{success}</p>
 
           <button
             type="button"
             onClick={() => setSuccess('')}
-            className="ml-auto text-green-700 hover:text-green-900"
+            className="text-green-700 hover:text-green-900"
             aria-label="Dismiss success message"
           >
             <X size={17} />
@@ -964,946 +1073,832 @@ export default function CheckInPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ------------------------------------------
-            1. VEHICLE
-        ------------------------------------------ */}
+      {/* CHECK-IN FORM */}
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Step 1
-            </p>
+      {!checkInCompleted && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ==========================================
+              VEHICLE
+          ========================================== */}
 
-            <h2 className="mt-1 text-lg font-semibold text-slate-900">
-              Vehicle details
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Search for an existing vehicle or register a new one.
-            </p>
-          </div>
-
-          <label className="mb-2 block text-sm font-medium text-slate-700">
-            Vehicle registration *
-          </label>
-
-          <div className="relative">
-            <Search
-              size={19}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <SectionHeading
+              icon={CarFront}
+              title="1. Vehicle"
+              description="Search for a registered vehicle or enter a new one."
             />
 
-            <input
-              autoComplete="off"
-              value={search}
-              onChange={(event) =>
-                handleSearchChange(event.target.value)
-              }
-              placeholder="Start typing, e.g. KDA123A"
-              className="w-full rounded-lg border border-slate-300 py-3 pl-10 pr-12 uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
+            <Field label="Vehicle registration number" required>
+              <div className="relative">
+                <Search
+                  size={18}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-            {searching && (
-              <Loader2
-                size={19}
-                className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-600"
-              />
-            )}
-          </div>
+                <input
+                  autoComplete="off"
+                  value={search}
+                  onChange={(event) =>
+                    handleSearchChange(event.target.value)
+                  }
+                  placeholder="Enter registration, e.g. KDA123A"
+                  className={`${inputClass} pl-10 uppercase`}
+                />
 
-          {!selectedVehicle &&
-            normalizedSearch.length > 0 &&
-            normalizedSearch.length < 2 && (
-              <p className="mt-2 text-xs text-slate-500">
-                Type at least two characters to search.
-              </p>
-            )}
-
-          {!selectedVehicle &&
-            normalizedSearch.length >= 2 &&
-            searching && (
-              <p className="mt-3 text-sm text-slate-500">
-                Searching registered vehicles...
-              </p>
-            )}
-
-          {/* EXISTING VEHICLE RESULTS */}
-
-          {!selectedVehicle && !searching && vehicles.length > 0 && (
-            <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-              <div className="border-b border-slate-100 bg-slate-50 px-4 py-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Matching vehicles
-                </p>
+                {searching && (
+                  <Loader2
+                    size={18}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-600"
+                  />
+                )}
               </div>
+            </Field>
 
-              {vehicles.slice(0, 20).map((vehicle) => (
-                <button
-                  key={vehicle.id}
-                  type="button"
-                  onClick={() => handleSelectVehicle(vehicle)}
-                  disabled={!vehicle.is_active}
-                  className={`flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left last:border-0 ${
-                    vehicle.is_active
-                      ? 'hover:bg-blue-50'
-                      : 'cursor-not-allowed bg-slate-50 opacity-60'
-                  }`}
-                >
-                  <span>
-                    <span className="block font-semibold text-slate-900">
-                      {vehicle.registration_number}
-                    </span>
+            {!selectedVehicle &&
+              normalizedSearch.length > 0 &&
+              normalizedSearch.length < 2 && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Enter at least two characters to search.
+                </p>
+              )}
 
-                    <span className="text-xs text-slate-500">
-                      {vehicle.make_model || 'Make/model not recorded'}
-                      {vehicle.category_name
-                        ? ` · ${vehicle.category_name}`
-                        : ''}
-                      {vehicle.branch_name
-                        ? ` · ${vehicle.branch_name}`
-                        : ''}
-                    </span>
-                  </span>
+            {!selectedVehicle &&
+              normalizedSearch.length >= 2 &&
+              searching && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Searching registered vehicles...
+                </p>
+              )}
 
-                  <span className="text-xs font-semibold text-blue-700">
-                    {vehicle.is_active ? 'Select vehicle' : 'Inactive'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+            {/* SEARCH RESULTS */}
 
-          {/* SELECTED EXISTING VEHICLE */}
+            {!selectedVehicle &&
+              !searching &&
+              vehicles.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
+                  <div className="bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Matching vehicles
+                  </div>
 
-          {selectedVehicle && (
-            <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
-                    Existing vehicle selected
-                  </p>
+                  {vehicles.slice(0, 20).map((vehicle) => (
+                    <button
+                      key={vehicle.id}
+                      type="button"
+                      onClick={() => handleSelectVehicle(vehicle)}
+                      disabled={!vehicle.is_active}
+                      className={`flex w-full items-center justify-between gap-3 border-t border-slate-100 px-3 py-3 text-left ${
+                        vehicle.is_active
+                          ? 'hover:bg-blue-50'
+                          : 'cursor-not-allowed bg-slate-50 opacity-60'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-slate-900">
+                          {vehicle.registration_number}
+                        </span>
 
-                  <p className="mt-1 text-lg font-bold text-slate-900">
-                    {selectedVehicle.registration_number}
-                  </p>
+                        <span className="block truncate text-xs text-slate-500">
+                          {vehicle.make_model || 'Make/model not recorded'}
+                          {vehicle.category_name
+                            ? ` · ${vehicle.category_name}`
+                            : ''}
+                          {vehicle.branch_name
+                            ? ` · ${vehicle.branch_name}`
+                            : ''}
+                        </span>
+                      </span>
 
-                  <p className="text-sm text-slate-600">
-                    {selectedVehicle.make_model || 'Make/model not recorded'}
-                    {selectedVehicle.category_name
-                      ? ` · ${selectedVehicle.category_name}`
-                      : ''}
-                  </p>
+                      <span className="shrink-0 text-xs font-semibold text-blue-700">
+                        {vehicle.is_active ? 'Select' : 'Inactive'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-                  {selectedVehicle.customer_name && (
-                    <p className="mt-1 text-sm text-slate-600">
-                      Customer: {selectedVehicle.customer_name}
+            {/* SELECTED VEHICLE */}
+
+            {selectedVehicle && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-3.5">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <CheckCircle2
+                    size={20}
+                    className="mt-0.5 shrink-0 text-green-700"
+                  />
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+                      Existing vehicle selected
                     </p>
-                  )}
+
+                    <p className="mt-0.5 font-bold text-slate-900">
+                      {selectedVehicle.registration_number}
+                    </p>
+
+                    <p className="text-sm text-slate-600">
+                      {selectedVehicle.make_model || 'Make/model not recorded'}
+                      {selectedVehicle.category_name
+                        ? ` · ${selectedVehicle.category_name}`
+                        : ''}
+                    </p>
+
+                    {selectedVehicle.customer_name && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Customer: {selectedVehicle.customer_name}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleChangeVehicle}
-                  className="text-sm font-semibold text-blue-700 hover:text-blue-900"
+                  className="rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
                 >
-                  Change
+                  Change vehicle
                 </button>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* NEW VEHICLE REGISTRATION FIELDS */}
+            {/* NEW VEHICLE FORM */}
 
-          {showRegistrationForm && (
-            <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
-                  <UserPlus size={20} />
-                </div>
+            {showRegistrationForm && (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-3.5 sm:p-4">
+                <div className="mb-4 flex items-center gap-2">
+                  <UserPlus size={18} className="text-blue-700" />
 
-                <div>
-                  <h3 className="font-semibold text-slate-900">
-                    Register new vehicle
-                  </h3>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      New vehicle details
+                    </h3>
 
-                  <p className="mt-1 text-sm text-slate-600">
-                    The vehicle will only be saved when you submit the complete
-                    check-in form.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Registration number *
-                  </label>
-
-                  <input
-                    required
-                    value={newVehicle.registration_number}
-                    onChange={(event) =>
-                      updateNewVehicle(
-                        'registration_number',
-                        event.target.value
-                      )
-                    }
-                    placeholder="KDA123A"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 uppercase outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Make / model *
-                  </label>
-
-                  <input
-                    required
-                    list="vehicle-make-model-suggestions"
-                    autoComplete="off"
-                    value={newVehicle.make_model}
-                    onChange={(event) =>
-                      updateNewVehicle(
-                        'make_model',
-                        event.target.value
-                      )
-                    }
-                    placeholder="e.g. Toyota Fielder"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                  />
-
-                  <datalist id="vehicle-make-model-suggestions">
-                    {makeModelSuggestions.map((model) => (
-                      <option key={model} value={model} />
-                    ))}
-                  </datalist>
-
-                  {searchingModels && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Finding make/model suggestions...
+                    <p className="text-xs text-slate-500">
+                      The vehicle will be registered when the complete check-in is submitted.
                     </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Registration number" required>
+                    <input
+                      required
+                      value={newVehicle.registration_number}
+                      onChange={(event) =>
+                        updateNewVehicle(
+                          'registration_number',
+                          event.target.value
+                        )
+                      }
+                      placeholder="KDA123A"
+                      className={`${inputClass} uppercase`}
+                    />
+                  </Field>
+
+                  <Field label="Make / model" required>
+                    <input
+                      required
+                      list="vehicle-make-model-suggestions"
+                      autoComplete="off"
+                      value={newVehicle.make_model}
+                      onChange={(event) =>
+                        updateNewVehicle(
+                          'make_model',
+                          event.target.value
+                        )
+                      }
+                      placeholder="e.g. Toyota Fielder"
+                      className={inputClass}
+                    />
+
+                    <datalist id="vehicle-make-model-suggestions">
+                      {makeModelSuggestions.map((model) => (
+                        <option key={model} value={model} />
+                      ))}
+                    </datalist>
+
+                    {searchingModels && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Loading make/model suggestions...
+                      </p>
+                    )}
+                  </Field>
+
+                  <Field label="Vehicle category" required>
+                    <select
+                      required
+                      value={newVehicle.category}
+                      onChange={(event) =>
+                        updateNewVehicle(
+                          'category',
+                          event.target.value
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">Select category</option>
+
+                      {categories
+                        .filter((category) => category.is_active)
+                        .map((category) => (
+                          <option
+                            key={category.id}
+                            value={category.id}
+                          >
+                            {category.name}
+                          </option>
+                        ))}
+                    </select>
+
+                    {canCreateCategory(role) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowCategoryForm((current) => !current)
+                        }
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+                      >
+                        <Plus size={14} />
+                        Add a category
+                      </button>
+                    )}
+                  </Field>
+
+                  {canViewCustomers(role) && (
+                    <Field label="Customer (optional)">
+                      <select
+                        value={selectedCustomerId}
+                        onChange={(event) =>
+                          setSelectedCustomerId(event.target.value)
+                        }
+                        className={inputClass}
+                      >
+                        <option value="">No customer selected</option>
+
+                        {customers.map((customer) => (
+                          <option
+                            key={customer.id}
+                            value={customer.id}
+                          >
+                            {customer.full_name} - {customer.phone_number}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+
+                  {canChooseBranch(role) && (
+                    <Field
+                      label="Vehicle registration branch"
+                      required
+                    >
+                      <select
+                        required
+                        value={registrationBranchId}
+                        onChange={(event) =>
+                          setRegistrationBranchId(event.target.value)
+                        }
+                        className={inputClass}
+                      >
+                        <option value="">Select branch</option>
+
+                        {branches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+
+                  {['SUPERVISOR', 'DETAILER'].includes(role) && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <p className="text-xs text-slate-500">
+                        Vehicle registration branch
+                      </p>
+
+                      <p className="mt-1 text-sm font-semibold text-slate-800">
+                        {ownBranchName || 'Not assigned'}
+                      </p>
+                    </div>
                   )}
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Vehicle category *
-                  </label>
+                {/* CATEGORY CREATION */}
 
-                  <select
-                    required
-                    value={newVehicle.category}
-                    onChange={(event) =>
-                      updateNewVehicle(
-                        'category',
-                        event.target.value
-                      )
-                    }
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                  >
-                    <option value="">Select category</option>
-
-                    {categories
-                      .filter((category) => category.is_active)
-                      .map((category) => (
-                        <option
-                          key={category.id}
-                          value={category.id}
-                        >
-                          {category.name}
-                        </option>
-                      ))}
-                  </select>
-
-                  {canCreateCategory(role) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowCategoryForm((current) => !current)
-                      }
-                      className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900"
-                    >
-                      <Plus size={15} />
-                      Add vehicle category
-                    </button>
-                  )}
-
-                  {showCategoryForm && canCreateCategory(role) && (
-                    <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3">
+                {showCategoryForm && canCreateCategory(role) && (
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3">
+                    <Field label="New category name" required>
                       <input
                         value={newCategoryName}
                         onChange={(event) =>
                           setNewCategoryName(event.target.value)
                         }
-                        placeholder="New category name"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
+                        placeholder="Enter category name"
+                        className={inputClass}
                       />
+                    </Field>
 
+                    <div className="mt-2 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={handleCreateCategory}
                         disabled={
                           savingCategory || !newCategoryName.trim()
                         }
-                        className="mt-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                       >
-                        {savingCategory
-                          ? 'Saving...'
-                          : 'Save category'}
+                        {savingCategory ? 'Saving...' : 'Save category'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCategoryForm(false)
+                          setNewCategoryName('')
+                        }}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* VEHICLE INSTRUCTIONS */}
+
+                <div className="mt-4 border-t border-blue-100 pt-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Vehicle instructions
+                  </p>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={newVehicle.no_plastic_mat}
+                        onChange={(event) =>
+                          updateNewVehicle(
+                            'no_plastic_mat',
+                            event.target.checked
+                          )
+                        }
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      No plastic mat
+                    </label>
+
+                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={newVehicle.no_woolen_mat}
+                        onChange={(event) =>
+                          updateNewVehicle(
+                            'no_woolen_mat',
+                            event.target.checked
+                          )
+                        }
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      No woolen mat
+                    </label>
+                  </div>
+
+                  <div className="mt-3">
+                    <Field label="Special concerns (optional)">
+                      <textarea
+                        rows={2}
+                        value={newVehicle.special_concerns}
+                        onChange={(event) =>
+                          updateNewVehicle(
+                            'special_concerns',
+                            event.target.value
+                          )
+                        }
+                        placeholder="Special instructions or concerns about this vehicle"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!selectedVehicle &&
+              !searching &&
+              normalizedSearch.length >= 2 &&
+              vehicles.length > 0 &&
+              vehicles.every((vehicle) => !vehicle.is_active) && (
+                <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                  Matching records exist, but they are inactive. Ask an administrator to reactivate the correct vehicle instead of registering a duplicate.
+                </p>
+              )}
+
+            {!selectedVehicle &&
+              !searching &&
+              normalizedSearch.length >= 2 &&
+              vehicles.length === 0 &&
+              !canCreateVehicle(role) && (
+                <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                  No matching vehicle was found. Your account cannot register a new vehicle. Ask an authorized staff member to register it.
+                </p>
+              )}
+          </section>
+
+          {/* ==========================================
+              SERVICES AND ASSIGNMENTS
+          ========================================== */}
+
+          {canAddServices(role) && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <SectionHeading
+                icon={Users}
+                title="3. Services and employees"
+                description="Add the required services and assign employees to each one."
+                trailing={
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
+                    {selectedServices.length} selected
+                  </span>
+                }
+              />
+
+              {/* ADD SERVICE */}
+
+              <div className="rounded-lg bg-slate-50 p-3">
+                <Field label="Choose a service">
+                  {services.length === 0 ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      No active services are available in the catalogue.
+                    </p>
+                  ) : availableServices.length === 0 ? (
+                    <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                      All active services have been added.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={selectedServiceId}
+                        onChange={(event) =>
+                          setSelectedServiceId(event.target.value)
+                        }
+                        className={inputClass}
+                      >
+                        <option value="">Select a service</option>
+
+                        {availableServices.map((service) => (
+                          <option
+                            key={service.id}
+                            value={service.id}
+                          >
+                            {service.name} — {getCategoryLabel(service.category)} — {formatKES(service.price)}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={handleAddService}
+                        disabled={!selectedServiceId}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Plus size={17} />
+                        Add service
                       </button>
                     </div>
                   )}
-                </div>
-
-                {canViewCustomers(role) && (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">
-                      Customer (optional)
-                    </label>
-
-                    <select
-                      value={selectedCustomerId}
-                      onChange={(event) =>
-                        setSelectedCustomerId(event.target.value)
-                      }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                    >
-                      <option value="">No customer selected</option>
-
-                      {customers.map((customer) => (
-                        <option
-                          key={customer.id}
-                          value={customer.id}
-                        >
-                          {customer.full_name} - {customer.phone_number}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {canChooseBranch(role) && (
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">
-                      Vehicle registration branch *
-                    </label>
-
-                    <select
-                      required
-                      value={registrationBranchId}
-                      onChange={(event) =>
-                        setRegistrationBranchId(event.target.value)
-                      }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                    >
-                      <option value="">Select branch</option>
-
-                      {branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {['SUPERVISOR', 'DETAILER'].includes(role) && (
-                  <div className="rounded-lg bg-white p-3 text-sm text-slate-600">
-                    Registration branch:{' '}
-                    <strong>{ownBranchName || 'Not assigned'}</strong>
-                  </div>
-                )}
+                </Field>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={newVehicle.no_plastic_mat}
-                    onChange={(event) =>
-                      updateNewVehicle(
-                        'no_plastic_mat',
-                        event.target.checked
-                      )
-                    }
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  No plastic mat
-                </label>
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={newVehicle.no_woolen_mat}
-                    onChange={(event) =>
-                      updateNewVehicle(
-                        'no_woolen_mat',
-                        event.target.checked
-                      )
-                    }
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  No woolen mat
-                </label>
-              </div>
+              {/* SELECTED SERVICES */}
 
               <div className="mt-4">
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Special concerns
-                </label>
+                {selectedServices.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center">
+                    <ClipboardList
+                      size={25}
+                      className="mx-auto text-slate-400"
+                    />
 
-                <textarea
-                  rows={3}
-                  value={newVehicle.special_concerns}
-                  onChange={(event) =>
-                    updateNewVehicle(
-                      'special_concerns',
-                      event.target.value
-                    )
-                  }
-                  placeholder="Optional vehicle notes or customer instructions"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-          )}
+                    <p className="mt-2 text-sm font-medium text-slate-700">
+                      No services added yet
+                    </p>
 
-          {!selectedVehicle &&
-            !searching &&
-            normalizedSearch.length >= 2 &&
-            vehicles.length > 0 &&
-            vehicles.every((vehicle) => !vehicle.is_active) && (
-              <p className="mt-3 text-sm text-amber-700">
-                Matching records exist, but they are inactive. Ask an
-                administrator to reactivate the correct vehicle instead of
-                registering a duplicate.
-              </p>
-            )}
-        </section>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choose a service above to add it to this visit.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedServices.map((item) => {
+                      const service = item.service
+                      const expectedRole = getEligibleRole(
+                        service.category
+                      )
 
-        {/* ------------------------------------------
-            2. VISIT DETAILS
-        ------------------------------------------ */}
+                      const eligibleStaff = branchStaff.filter(
+                        (staff) => staff.role === expectedRole
+                      )
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Step 2
-            </p>
+                      return (
+                        <article
+                          key={service.id}
+                          className="overflow-hidden rounded-lg border border-slate-200"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                              <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
+                                <Check size={17} />
+                              </div>
 
-            <h2 className="mt-1 text-lg font-semibold text-slate-900">
-              Visit details
-            </h2>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900">
+                                  {service.name}
+                                </p>
 
-            <p className="mt-1 text-sm text-slate-500">
-              These details will be saved together with the vehicle and service
-              assignments.
-            </p>
-          </div>
-
-          {canChooseBranch(role) ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Servicing branch *
-                </label>
-
-                <select
-                  required
-                  value={servicingBranchId}
-                  onChange={(event) =>
-                    setServicingBranchId(event.target.value)
-                  }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                >
-                  <option value="">Select servicing branch</option>
-
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedVehicle && (
-                <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-                  <span className="block text-xs text-slate-500">
-                    Vehicle registration branch
-                  </span>
-
-                  <strong>
-                    {selectedVehicle.branch_name || 'Not recorded'}
-                  </strong>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    The servicing branch can be different from the original
-                    registration branch.
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-              Servicing branch:{' '}
-              <strong>{ownBranchName || 'Branch not assigned'}</strong>
-              <span className="ml-1 text-xs text-slate-500">
-                (from your staff profile)
-              </span>
-            </div>
-          )}
-
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Number of plastic mats
-              </label>
-
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={plasticMatCount}
-                onChange={(event) =>
-                  setPlasticMatCount(event.target.value)
-                }
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Number of woolen mats
-              </label>
-
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={woolenMatCount}
-                onChange={(event) =>
-                  setWoolenMatCount(event.target.value)
-                }
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Visit comment
-            </label>
-
-            <textarea
-              rows={3}
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="Optional comments about this visit"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-blue-500"
-            />
-          </div>
-        </section>
-
-        {/* ------------------------------------------
-            3. SERVICES AND ASSIGNMENTS
-        ------------------------------------------ */}
-
-        {canAddServices(role) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                Step 3
-              </p>
-
-              <h2 className="mt-1 text-lg font-semibold text-slate-900">
-                Services and employee assignments
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Add all services required for this vehicle and select the
-                employees who will perform each service.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Add a service
-              </label>
-
-              {loadingServices ? (
-                <div className="flex items-center gap-2 py-3 text-sm text-slate-500">
-                  <Loader2 size={17} className="animate-spin" />
-                  Loading services...
-                </div>
-              ) : services.length === 0 ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  No active services are available in the catalogue.
-                </p>
-              ) : availableServices.length === 0 ? (
-                <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-                  All active services have been added.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <select
-                    value={selectedServiceId}
-                    onChange={(event) =>
-                      setSelectedServiceId(event.target.value)
-                    }
-                    className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="">Choose a service</option>
-
-                    {availableServices.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name} — {getCategoryLabel(service.category)} —{' '}
-                        {formatKES(service.price)}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={handleAddService}
-                    disabled={!selectedServiceId}
-                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus size={17} className="mr-2" />
-                    Add service
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-semibold text-slate-900">
-                  Selected services
-                </h3>
-
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
-                  {selectedServices.length}{' '}
-                  {selectedServices.length === 1 ? 'service' : 'services'}
-                </span>
-              </div>
-
-              {selectedServices.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
-                  <ClipboardList
-                    size={30}
-                    className="mx-auto text-slate-400"
-                  />
-
-                  <p className="mt-3 font-medium text-slate-700">
-                    No services selected
-                  </p>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Choose a service above to add it to this visit.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {selectedServices.map((item) => {
-                    const service = item.service
-                    const expectedRole = getEligibleRole(
-                      service.category
-                    )
-
-                    const eligibleStaff = branchStaff.filter(
-                      (staff) => staff.role === expectedRole
-                    )
-
-                    return (
-                      <article
-                        key={service.id}
-                        className="overflow-hidden rounded-xl border border-slate-200"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-4">
-                          <div className="flex min-w-0 items-start gap-3">
-                            <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
-                              <Check size={18} />
-                            </div>
-
-                            <div>
-                              <p className="font-semibold text-slate-900">
-                                {service.name}
-                              </p>
-
-                              <p className="mt-1 text-xs text-slate-500">
-                                {getCategoryLabel(service.category)}
-                                {service.code ? ` · ${service.code}` : ''}
-                                {service.duration_minutes
-                                  ? ` · ${service.duration_minutes} minutes`
-                                  : ''}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <p className="font-semibold text-slate-900">
-                              {formatKES(service.price)}
-                            </p>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRemoveService(service.id)
-                              }
-                              title="Remove service from this form"
-                              className="rounded-lg border border-red-200 p-2 text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {canAssignEmployees(role) && (
-                          <div className="p-4">
-                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                              <div>
-                                <h4 className="text-sm font-semibold text-slate-800">
-                                  Assign employees
-                                </h4>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {expectedRole === 'CLEANER'
-                                    ? 'Choose one or more active cleaners.'
-                                    : 'Choose one or more active detailers.'}
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  {getCategoryLabel(service.category)}
+                                  {service.code
+                                    ? ` · ${service.code}`
+                                    : ''}
+                                  {service.duration_minutes
+                                    ? ` · ${service.duration_minutes} minutes`
+                                    : ''}
                                 </p>
                               </div>
-
-                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                                <Users size={13} />
-                                {item.staffIds.length} selected
-                              </span>
                             </div>
 
-                            {!effectiveBranchId ? (
-                              <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                                Select the servicing branch to load its
-                                employees.
-                              </p>
-                            ) : loadingStaff ? (
-                              <div className="flex items-center gap-2 text-sm text-slate-500">
-                                <Loader2
-                                  size={16}
-                                  className="animate-spin"
-                                />
-                                Loading eligible employees...
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {formatKES(service.price)}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRemoveService(service.id)
+                                }
+                                title="Remove service"
+                                aria-label={`Remove ${service.name}`}
+                                className="rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* EMPLOYEE ASSIGNMENT */}
+
+                          {canAssignEmployees(role) && (
+                            <div className="p-3">
+                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-800">
+                                    Assign employees
+                                  </p>
+
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    {expectedRole === 'CLEANER'
+                                      ? 'Select the cleaner or cleaners responsible for this service.'
+                                      : expectedRole === 'DETAILER'
+                                        ? 'Select the detailer or detailers responsible for this service.'
+                                        : 'This service has no recognized employee category.'}
+                                  </p>
+                                </div>
+
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  <Users size={13} />
+                                  {item.staffIds.length} selected
+                                </span>
                               </div>
-                            ) : eligibleStaff.length === 0 ? (
-                              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                                No active{' '}
-                                {expectedRole === 'CLEANER'
-                                  ? 'cleaners'
-                                  : 'detailers'}{' '}
-                                found for this branch. Check staff roles and
-                                employment status.
+
+                              {!effectiveBranchId ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                                  Select the servicing branch first.
+                                </p>
+                              ) : loadingStaff ? (
+                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                  <Loader2
+                                    size={16}
+                                    className="animate-spin"
+                                  />
+                                  Loading employees...
+                                </div>
+                              ) : !expectedRole ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                                  The service category does not identify an eligible employee role. Check the service catalogue.
+                                </p>
+                              ) : eligibleStaff.length === 0 ? (
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                  No active {expectedRole === 'CLEANER' ? 'cleaners' : 'detailers'} were found for this branch.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  {eligibleStaff.map((staff) => {
+                                    const checked = item.staffIds.includes(
+                                      Number(staff.id)
+                                    )
+
+                                    return (
+                                      <label
+                                        key={staff.id}
+                                        className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition ${
+                                          checked
+                                            ? 'border-blue-300 bg-blue-50'
+                                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() =>
+                                            handleToggleStaff(
+                                              service.id,
+                                              staff.id
+                                            )
+                                          }
+                                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                                        />
+
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-sm font-medium text-slate-800">
+                                            {getStaffName(staff)}
+                                          </span>
+
+                                          <span className="mt-0.5 block text-xs text-slate-500">
+                                            {staff.staff_number || 'No staff number'}
+                                            {staff.current_shift
+                                              ? ` · ${staff.current_shift} shift`
+                                              : ''}
+                                          </span>
+                                        </span>
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {!canAssignEmployees(role) && (
+                            <div className="p-3">
+                              <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                                An ADMIN or SUPERVISOR will assign employees to this service.
                               </p>
-                            ) : (
-                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                {eligibleStaff.map((staff) => {
-                                  const checked = item.staffIds.includes(
-                                    Number(staff.id)
-                                  )
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
 
-                                  return (
-                                    <label
-                                      key={staff.id}
-                                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition ${
-                                        checked
-                                          ? 'border-blue-300 bg-blue-50'
-                                          : 'border-slate-200 bg-white hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() =>
-                                          handleToggleStaff(
-                                            service.id,
-                                            staff.id
-                                          )
-                                        }
-                                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                                      />
+              {/* SERVICE TOTAL */}
 
-                                      <span className="min-w-0 flex-1">
-                                        <span className="block truncate text-sm font-medium text-slate-800">
-                                          {getStaffName(staff)}
-                                        </span>
+              {selectedServices.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Catalogue price total
+                    </p>
 
-                                        <span className="mt-0.5 block text-xs text-slate-500">
-                                          {staff.staff_number || 'No staff number'}
-                                          {staff.current_shift
-                                            ? ` · ${staff.current_shift} shift`
-                                            : ''}
-                                        </span>
-                                      </span>
-                                    </label>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                    <p className="mt-0.5 text-lg font-bold text-slate-900">
+                      {formatKES(selectedServiceTotal)}
+                    </p>
 
-                        {!canAssignEmployees(role) && (
-                          <div className="p-4">
-                            <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                              Employee assignment is performed by an ADMIN or
-                              SUPERVISOR. This service will be saved without
-                              employee assignments.
-                            </p>
-                          </div>
-                        )}
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Indicative only. Final billing and discounts are handled separately.
+                    </p>
+                  </div>
 
-                        {expectedRole && canAssignEmployees(role) && (
-                          <div className="border-t border-slate-100 px-4 py-3">
-                            <p className="text-xs text-slate-500">
-                              Required employee role:{' '}
-                              <strong>{expectedRole}</strong>
-                            </p>
-                          </div>
-                        )}
-                      </article>
-                    )
-                  })}
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">
+                      Employee assignments
+                    </p>
+
+                    <p className="mt-0.5 text-lg font-bold text-slate-900">
+                      {selectedAssignmentCount}
+                    </p>
+                  </div>
                 </div>
               )}
+            </section>
+          )}
+
+          {/* OWNER INFORMATION */}
+
+          {role === 'OWNER' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              OWNER access can record a visit for an existing vehicle. Vehicle registration, service selection and employee assignment are handled by authorized operational staff.
             </div>
+          )}
 
-            {selectedServices.length > 0 && (
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-4">
-                <div>
-                  <p className="text-xs text-slate-500">
-                    Catalogue price total
-                  </p>
+          {/* ==========================================
+              REVIEW AND SUBMIT
+          ========================================== */}
 
-                  <p className="text-xl font-bold text-slate-900">
-                    {formatKES(selectedServiceTotal)}
-                  </p>
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <SectionHeading
+              icon={CheckCircle2}
+              title="4. Review and submit"
+              description="Check the details before saving the vehicle visit."
+            />
 
-                  <p className="mt-1 text-xs text-slate-500">
-                    Indicative service total; final billing and discounts are
-                    handled separately.
-                  </p>
-                </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Vehicle</p>
 
-                <p className="text-sm text-slate-600">
-                  {selectedServices.reduce(
-                    (total, item) => total + item.staffIds.length,
-                    0
-                  )}{' '}
-                  employee assignment(s) selected
+                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                  {selectedVehicle
+                    ? selectedVehicle.registration_number
+                    : showRegistrationForm
+                      ? newVehicle.registration_number || 'New vehicle'
+                      : 'Not selected'}
                 </p>
               </div>
-            )}
-          </section>
-        )}
 
-        {/* OWNER ROLE INFORMATION */}
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Services</p>
 
-        {role === 'OWNER' && (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm text-amber-900">
-              OWNER access can record a visit for an existing vehicle. Vehicle
-              registration and service/employee assignment are handled by
-              authorized operational staff.
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {selectedServices.length}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Assignments</p>
+
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {selectedAssignmentCount}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Servicing branch</p>
+
+                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                  {selectedBranchName || 'Not selected'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={
+                submitting ||
+                (canAssignEmployees(role) && loadingStaff)
+              }
+              className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 size={18} className="mr-2 animate-spin" />
+                  Saving check-in...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={18} className="mr-2" />
+
+                  {selectedVehicle
+                    ? 'Submit vehicle visit'
+                    : 'Register vehicle and submit visit'}
+                </>
+              )}
+            </button>
+
+            <p className="mt-2 text-center text-xs text-slate-500">
+              All entered details are submitted together. The form resets only after a successful response.
             </p>
           </section>
-        )}
+        </form>
+      )}
 
-        {/* ------------------------------------------
-            FINAL SUBMISSION
-        ------------------------------------------ */}
+      {/* SUCCESSFUL CHECK-IN SCREEN */}
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Review and submit
-            </h2>
+      {checkInCompleted && (
+        <div className="rounded-xl border border-green-200 bg-white p-6 text-center shadow-sm">
+          <CheckCircle2
+            size={42}
+            className="mx-auto text-green-600"
+          />
 
-            <p className="mt-1 text-sm text-slate-500">
-              Vehicle, visit, services and employee assignments are saved
-              together when you submit.
-            </p>
-          </div>
+          <h2 className="mt-3 text-lg font-bold text-slate-900">
+            Check-in completed successfully
+          </h2>
 
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Vehicle</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">
-                {selectedVehicle
-                  ? 'Existing'
-                  : showRegistrationForm
-                    ? 'New'
-                    : 'Not selected'}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Services</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">
-                {selectedServices.length}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Employees</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">
-                {selectedServices.reduce(
-                  (total, item) => total + item.staffIds.length,
-                  0
-                )}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Servicing branch</p>
-              <p className="mt-1 truncate text-sm font-semibold text-slate-900">
-                {canChooseBranch(role)
-                  ? branches.find(
-                      (branch) =>
-                        String(branch.id) === String(servicingBranchId)
-                    )?.name || 'Not selected'
-                  : ownBranchName || 'Not assigned'}
-              </p>
-            </div>
-          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            The vehicle visit has been saved. You can now start another check-in.
+          </p>
 
           <button
-            type="submit"
-            disabled={
-              submitting ||
-              (canAssignEmployees(role) && loadingStaff)
-            }
-            className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            onClick={handleNewCheckIn}
+            className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
-            {submitting ? (
-              <>
-                <Loader2 size={18} className="mr-2 animate-spin" />
-                Saving vehicle, visit and assignments...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 size={18} className="mr-2" />
-                {selectedVehicle
-                  ? 'Submit vehicle visit and assignments'
-                  : 'Register vehicle and submit visit'}
-              </>
-            )}
+            <Plus size={18} />
+            New check-in
           </button>
-
-          <p className="mt-3 text-center text-xs text-slate-500">
-            One submission saves the complete workflow. If validation fails,
-            the database transaction is rolled back.
-          </p>
-        </section>
-      </form>
+        </div>
+      )}
     </div>
   )
 }
