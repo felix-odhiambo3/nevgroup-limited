@@ -1,11 +1,12 @@
 
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, Sum
 
 from branches.models import Branch
 from vehicles.models import Customer
@@ -19,7 +20,7 @@ class BranchTaxConfiguration(models.Model):
     """
     Effective-dated VAT configuration for an individual branch.
 
-    Date periods are inclusive. Invoices will retain VAT snapshots
+    Date periods are inclusive. Invoices retain VAT snapshots
     so future configuration changes do not affect old invoices.
     """
 
@@ -123,14 +124,11 @@ class BranchTaxConfiguration(models.Model):
                 branch_id=self.branch_id,
             ).exclude(pk=self.pk)
 
-            # Existing period starts on or before this period ends.
             if self.effective_until is not None:
                 overlapping = overlapping.filter(
                     effective_from__lte=self.effective_until,
                 )
 
-            # Existing period has no end date, or ends on/after
-            # this period starts.
             overlapping = overlapping.filter(
                 Q(effective_until__isnull=True)
                 | Q(effective_until__gte=self.effective_from)
@@ -199,11 +197,9 @@ class Invoice(models.Model):
         default=Status.DRAFT,
     )
 
-    # Customer identity snapshots.
     customer_name = models.CharField(max_length=150, blank=True)
     customer_phone = models.CharField(max_length=20, blank=True)
 
-    # Branch identity snapshots.
     branch_name = models.CharField(max_length=150)
     branch_address = models.CharField(max_length=255, blank=True)
     branch_phone = models.CharField(max_length=20, blank=True)
@@ -212,7 +208,6 @@ class Invoice(models.Model):
         blank=True,
     )
 
-    # VAT configuration snapshot.
     is_vat_registered = models.BooleanField(default=False)
 
     vat_rate = models.DecimalField(
@@ -226,7 +221,6 @@ class Invoice(models.Model):
         ],
     )
 
-    # All monetary values are in KES.
     subtotal = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -248,7 +242,6 @@ class Invoice(models.Model):
         validators=[MinValueValidator(ZERO)],
     )
 
-    # Total of bargaining and loyalty discounts.
     discount_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -279,7 +272,6 @@ class Invoice(models.Model):
         validators=[MinValueValidator(ZERO)],
     )
 
-    # Independent of money collected from the customer.
     commission_base_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -380,7 +372,6 @@ class InvoiceLine(models.Model):
     """
     Historical snapshot of a service charged on an invoice.
 
-    unit_price preserves the original branch price.
     Bargaining discounts reduce the commission basis.
     Loyalty discounts reduce the customer charge but do not
     reduce the commission basis.
@@ -407,7 +398,6 @@ class InvoiceLine(models.Model):
         validators=[MinValueValidator(1)],
     )
 
-    # Original branch service price, not the discounted price.
     unit_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -460,8 +450,6 @@ class InvoiceLine(models.Model):
         validators=[MinValueValidator(ZERO)],
     )
 
-    # Original price less bargaining discount.
-    # Loyalty discounts do not reduce this amount.
     commission_base_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -518,27 +506,24 @@ class InvoiceLine(models.Model):
         super().clean()
 
         errors = {}
-
         gross_amount = self.quantity * self.unit_price
 
         if self.unit_price == ZERO and not self.zero_price_reason.strip():
             errors['zero_price_reason'] = (
-                'A reason or promotion is required for a zero-priced '
-                'service.'
+                'A reason or promotion is required for a zero-priced service.'
             )
 
         if self.bargaining_discount > gross_amount:
             errors['bargaining_discount'] = (
-                'The bargaining discount cannot exceed the original '
-                'line amount.'
+                'The bargaining discount cannot exceed the original line amount.'
             )
 
         if self.loyalty_discount > (
             gross_amount - self.bargaining_discount
         ):
             errors['loyalty_discount'] = (
-                'The loyalty discount cannot exceed the remaining '
-                'amount after bargaining discount.'
+                'The loyalty discount cannot exceed the remaining amount '
+                'after bargaining discount.'
             )
 
         expected_taxable = (
@@ -588,3 +573,264 @@ class InvoiceLine(models.Model):
 
     def __str__(self):
         return f'{self.service_name} - Invoice #{self.invoice_id}'
+
+
+class PaymentCollection(models.Model):
+    """
+    One customer collection and one receipt.
+
+    A collection can contain multiple payment entries, for example
+    cash plus M-PESA. The invoice's unpaid balance remains on that
+    invoice; it is not automatically transferred to a credit account.
+    """
+
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name='payment_collections',
+    )
+
+    receipt_number = models.CharField(
+        max_length=50,
+        unique=True,
+    )
+
+    idempotency_key = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='received_payment_collections',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(
+                fields=['invoice', '-created_at'],
+                name='pay_collection_invoice_idx',
+            ),
+        ]
+
+    @property
+    def total_received(self):
+        payments_total = (
+            self.entries.aggregate(total=Sum('amount'))['total']
+            or ZERO
+        )
+
+        reversals_total = (
+            PaymentReversal.objects.filter(
+                payment_entry__collection=self,
+            ).aggregate(total=Sum('amount'))['total']
+            or ZERO
+        )
+
+        return payments_total - reversals_total
+
+    def clean(self):
+        super().clean()
+
+        if self.invoice_id and self.invoice.status in (
+            Invoice.Status.DRAFT,
+            Invoice.Status.VOID,
+        ):
+            raise ValidationError({
+                'invoice': 'Payments cannot be collected against a draft '
+                           'or void invoice.'
+            })
+
+    def __str__(self):
+        return self.receipt_number
+
+
+class PaymentEntry(models.Model):
+    """
+    An individual tender line within a payment collection.
+    """
+
+    class Method(models.TextChoices):
+        CASH = 'CASH', 'Cash'
+        MPESA = 'MPESA', 'M-PESA'
+
+    collection = models.ForeignKey(
+        PaymentCollection,
+        on_delete=models.PROTECT,
+        related_name='entries',
+    )
+
+    method = models.CharField(
+        max_length=10,
+        choices=Method.choices,
+    )
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+
+    # Required for M-PESA; optional for cash.
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=ZERO),
+                name='payment_entry_amount_positive',
+            ),
+            models.UniqueConstraint(
+                fields=['reference'],
+                condition=(
+                    Q(method='MPESA') & ~Q(reference='')
+                ),
+                name='unique_mpesa_payment_reference',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.amount is not None:
+            if self.amount <= ZERO:
+                errors['amount'] = 'Payment amount must be greater than zero.'
+
+            elif self.amount.as_tuple().exponent < -2:
+                errors['amount'] = (
+                    'Payment amount cannot have more than two decimal places.'
+                )
+
+        if self.method == self.Method.MPESA and not self.reference.strip():
+            errors['reference'] = (
+                'An M-PESA transaction reference is required.'
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f'{self.get_method_display()} - '
+            f'KES {self.amount} - Receipt {self.collection.receipt_number}'
+        )
+
+
+class PaymentReversal(models.Model):
+    """
+    Immutable audit record for a full or partial payment reversal.
+
+    The original PaymentEntry is never deleted or edited.
+    Multiple partial reversals are allowed, but their combined
+    amount must not exceed the original payment.
+    """
+
+    payment_entry = models.ForeignKey(
+        PaymentEntry,
+        on_delete=models.PROTECT,
+        related_name='reversals',
+    )
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+
+    reason = models.CharField(max_length=255)
+
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='payment_reversals',
+    )
+
+    idempotency_key = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=ZERO),
+                name='payment_reversal_amount_positive',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.amount is not None:
+            if self.amount <= ZERO:
+                errors['amount'] = (
+                    'Reversal amount must be greater than zero.'
+                )
+
+            elif self.amount.as_tuple().exponent < -2:
+                errors['amount'] = (
+                    'Reversal amount cannot have more than two decimal places.'
+                )
+
+        if not self.reason or not self.reason.strip():
+            errors['reason'] = 'A reversal reason is required.'
+
+        if self.payment_entry_id and self.amount is not None:
+            payment = PaymentEntry.objects.get(
+                pk=self.payment_entry_id,
+            )
+
+            previous_reversals = (
+                PaymentReversal.objects.filter(
+                    payment_entry_id=self.payment_entry_id,
+                )
+                .exclude(pk=self.pk)
+                .aggregate(total=Sum('amount'))['total']
+                or ZERO
+            )
+
+            if previous_reversals + self.amount > payment.amount:
+                errors['amount'] = (
+                    'Total reversals cannot exceed the original payment.'
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            'Payment reversals cannot be deleted.'
+        )
+
+    def __str__(self):
+        return (
+            f'Reversal of payment #{self.payment_entry_id} '
+            f'- KES {self.amount}'
+        )
