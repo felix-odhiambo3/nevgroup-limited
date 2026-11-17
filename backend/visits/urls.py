@@ -9,101 +9,112 @@ from .views import (
     ServiceAssignmentRemoveView,
     MyDayView,
     ServiceAssignmentCompleteView,
-        VisitCompleteView,
+    VisitCompleteView,
 )
 
 from .workflows import VehicleIntakeWorkflowView
 
 from .monitoring import (
-    SupervisorMonitorAssignmentsView,
     SupervisorReassignView,
     SupervisorCompleteAssignmentView,
     SupervisorRemoveAssignmentView,
     AdminOwnerAssignmentCorrectionView,
 )
 
+from .workload_monitoring import (
+    BranchWideMonitorAssignmentsView,
+    WorkloadReportView,
+)
+
 
 urlpatterns = [
     path(
-        '',
+        "",
         VisitListCreateView.as_view(),
-        name='visit_list_create',
+        name="visit_list_create",
     ),
 
     path(
-        'register-and-assign/',
+        "register-and-assign/",
         VehicleIntakeWorkflowView.as_view(),
-        name='vehicle_intake_workflow',
+        name="vehicle_intake_workflow",
     ),
 
     path(
-        'monitor-assignments/',
-        SupervisorMonitorAssignmentsView.as_view(),
-        name='supervisor_monitor_assignments',
+        "monitor-assignments/",
+        BranchWideMonitorAssignmentsView.as_view(),
+        name="supervisor_monitor_assignments",
     ),
 
     path(
-        'monitor-assignments/<int:assignment_id>/reassign/',
+        "monitor-workload/",
+        WorkloadReportView.as_view(),
+        name="visit_workload_report",
+    ),
+
+    path(
+        "monitor-assignments/<int:assignment_id>/reassign/",
         SupervisorReassignView.as_view(),
-        name='supervisor_reassign_assignment',
+        name="supervisor_reassign_assignment",
     ),
 
     path(
-        'monitor-assignments/<int:assignment_id>/complete/',
+        "monitor-assignments/<int:assignment_id>/complete/",
         SupervisorCompleteAssignmentView.as_view(),
-        name='supervisor_complete_assignment',
+        name="supervisor_complete_assignment",
     ),
 
     path(
-        'monitor-assignments/<int:assignment_id>/remove/',
+        "monitor-assignments/<int:assignment_id>/remove/",
         SupervisorRemoveAssignmentView.as_view(),
-        name='supervisor_remove_assignment',
+        name="supervisor_remove_assignment",
     ),
 
     path(
-        'my-day/',
+        "my-day/",
         MyDayView.as_view(),
-        name='my_day',
+        name="my_day",
     ),
 
     path(
-        'assignments/<int:assignment_id>/complete/',
+        "assignments/<int:assignment_id>/complete/",
         ServiceAssignmentCompleteView.as_view(),
-        name='complete_service_assignment',
+        name="complete_service_assignment",
     ),
 
     path(
-        'assignments/<int:assignment_id>/corrections/',
+        "assignments/<int:assignment_id>/corrections/",
         AdminOwnerAssignmentCorrectionView.as_view(),
-        name='admin_owner_assignment_corrections',
+        name="admin_owner_assignment_corrections",
     ),
 
     path(
-        '<int:pk>/',
+        "<int:pk>/",
         VisitDetailView.as_view(),
-        name='visit_detail',
+        name="visit_detail",
     ),
 
     path(
-        '<int:visit_id>/services/',
+        "<int:visit_id>/services/",
         VisitServiceListCreateView.as_view(),
-        name='visit_services',
+        name="visit_services",
     ),
 
     path(
-        '<int:visit_id>/services/<int:visit_service_id>/assignments/',
+        "<int:visit_id>/services/<int:visit_service_id>/assignments/",
         ServiceAssignmentListCreateView.as_view(),
-        name='service_assignments',
+        name="service_assignments",
     ),
 
     path(
-        '<int:visit_id>/services/<int:visit_service_id>/assignments/<int:assignment_id>/remove/',
+        "<int:visit_id>/services/<int:visit_service_id>/assignments/<int:assignment_id>/remove/",
         ServiceAssignmentRemoveView.as_view(),
-        name='remove_service_assignment',
+        name="remove_service_assignment",
     ),
-       path(
-        '<int:visit_id>/complete/',
+
+    path(
+        "<int:visit_id>/complete/",
         VisitCompleteView.as_view(),
-        name='complete_visit',
+        name="complete_visit",
     ),
 ]

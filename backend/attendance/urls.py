@@ -8,6 +8,7 @@ from .views import (
     AttendanceOverrideExecuteView,
     AttendanceOverrideAuditView,
     ShiftInstanceListView,
+    SupervisorOperationsAttendanceView,
     MyAttendanceView,
     EmployeeClockInView,
     EmployeeClockOutView,
@@ -37,6 +38,12 @@ urlpatterns = [
         'shifts/',
         ShiftInstanceListView.as_view(),
         name='attendance_shift_list',
+    ),
+
+    path(
+        'operations/',
+        SupervisorOperationsAttendanceView.as_view(),
+        name='attendance_operations_report',
     ),
 
     path(

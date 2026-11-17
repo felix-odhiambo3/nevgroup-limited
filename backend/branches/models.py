@@ -14,6 +14,15 @@ class Branch(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
 
+    # Daily revenue target in Kenyan Shillings (KES).
+    daily_revenue_target = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Daily branch revenue target in KES.",
+    )
+
     # GPS attendance configuration
     latitude = models.DecimalField(
         max_digits=10,
