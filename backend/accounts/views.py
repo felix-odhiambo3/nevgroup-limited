@@ -3,6 +3,10 @@ import os
 from secrets import compare_digest
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db import transaction
 
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -42,35 +46,37 @@ def get_manageable_users(request):
     return queryset
 
 
+def valid_diagnostic_token(request):
+    expected_token = os.environ.get(
+        "PRODUCTION_DIAGNOSTIC_TOKEN",
+        ""
+    )
+    supplied_token = request.headers.get(
+        "X-Production-Diagnostic-Token",
+        ""
+    )
+
+    return bool(
+        expected_token
+        and supplied_token
+        and compare_digest(supplied_token, expected_token)
+    )
+
+
 class ProductionUserDiagnosticView(APIView):
     """
     Temporary, read-only production account diagnostic.
-    Requires a secret configured in the environment.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
-        expected_token = os.environ.get(
-            "PRODUCTION_DIAGNOSTIC_TOKEN",
-            ""
-        )
-        supplied_token = request.headers.get(
-            "X-Production-Diagnostic-Token",
-            ""
-        )
-
-        if (
-            not expected_token
-            or not supplied_token
-            or not compare_digest(supplied_token, expected_token)
-        ):
+        if not valid_diagnostic_token(request):
             return Response(
                 {"detail": "Not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # List production users without exposing emails or passwords.
         if request.query_params.get("list") == "1":
             users = User.objects.all().order_by("username")
 
@@ -89,7 +95,6 @@ class ProductionUserDiagnosticView(APIView):
                 "users": user_records,
             })
 
-        # Check one specific username.
         username = request.query_params.get(
             "username",
             ""
@@ -124,6 +129,83 @@ class ProductionUserDiagnosticView(APIView):
             "is_staff": user.is_staff,
             "is_superuser": user.is_superuser,
         })
+
+
+class ProductionOwnerBootstrapView(APIView):
+    """
+    Temporary one-time endpoint for creating the initial production Owner.
+    It refuses to run if any user already exists.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if not valid_diagnostic_token(request):
+            return Response(
+                {"detail": "Not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        email = request.data.get("email", "").strip()
+        password = request.data.get("password", "")
+
+        if not email or not password:
+            return Response(
+                {"detail": "Email and password are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            validate_email(email)
+            validate_password(password)
+        except ValidationError as exc:
+            return Response(
+                {"detail": exc.messages},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            with transaction.atomic():
+                if User.objects.exists():
+                    return Response(
+                        {
+                            "detail": (
+                                "Owner provisioning refused: "
+                                "a user account already exists."
+                            )
+                        },
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                user = User.objects.create_superuser(
+                    username="Owner",
+                    email=email,
+                    password=password,
+                    role=User.Role.OWNER,
+                )
+
+        except Exception:
+            return Response(
+                {
+                    "detail": (
+                        "Owner provisioning failed. "
+                        "Check the server logs before retrying."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            {
+                "message": "Initial production Owner created successfully.",
+                "username": user.username,
+                "role": user.role,
+                "is_active": user.is_active,
+                "is_staff": user.is_staff,
+                "is_superuser": user.is_superuser,
+            },
+            status=status.HTTP_201_CREATED
+        )
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):

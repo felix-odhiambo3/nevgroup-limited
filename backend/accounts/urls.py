@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     ProductionUserDiagnosticView,
+    ProductionOwnerBootstrapView,
     CustomTokenObtainPairView,
     LogoutView,
     MeView,
@@ -45,6 +46,11 @@ urlpatterns = [
         'diagnostics/user/',
         ProductionUserDiagnosticView.as_view(),
         name='production_user_diagnostic'
+    ),
+    path(
+        'diagnostics/bootstrap-owner/',
+        ProductionOwnerBootstrapView.as_view(),
+        name='production_owner_bootstrap'
     ),
 
     path(
