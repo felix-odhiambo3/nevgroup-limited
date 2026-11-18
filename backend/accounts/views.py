@@ -45,7 +45,7 @@ def get_manageable_users(request):
 class ProductionUserDiagnosticView(APIView):
     """
     Temporary, read-only production account diagnostic.
-    Access requires a secret configured in the environment.
+    Requires a secret configured in the environment.
     """
 
     permission_classes = [AllowAny]
@@ -70,11 +70,39 @@ class ProductionUserDiagnosticView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        username = request.query_params.get("username", "").strip()
+        # List production users without exposing emails or passwords.
+        if request.query_params.get("list") == "1":
+            users = User.objects.all().order_by("username")
+
+            user_records = list(
+                users.values(
+                    "username",
+                    "role",
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                )
+            )
+
+            return Response({
+                "total_users": len(user_records),
+                "users": user_records,
+            })
+
+        # Check one specific username.
+        username = request.query_params.get(
+            "username",
+            ""
+        ).strip()
 
         if not username:
             return Response(
-                {"detail": "Provide a username query parameter."},
+                {
+                    "detail": (
+                        "Provide a username parameter "
+                        "or use ?list=1."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
