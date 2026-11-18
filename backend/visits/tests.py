@@ -1,7 +1,6 @@
-from services.models import Service, BranchServicePrice
+
 from datetime import date
 from decimal import Decimal
-from services.models import Service
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -11,8 +10,9 @@ from rest_framework.test import APITestCase, APIClient
 
 from branches.models import Branch
 from vehicles.models import Vehicle, VehicleCategory
-from services.models import Service
+from services.models import Service, BranchServicePrice
 from staff.models import StaffProfile
+
 from .models import Visit, VisitService, ServiceAssignment
 
 
@@ -326,13 +326,11 @@ class VisitWorkflowTests(APITestCase):
 
         visit = Visit.objects.get()
 
-        # Vehicle registration branch remains unchanged.
         self.assertEqual(
             visit.vehicle.branch,
             self.branch_b,
         )
 
-        # Visit belongs to the detailer's assigned branch.
         self.assertEqual(
             visit.branch,
             self.branch_a,
@@ -529,13 +527,17 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.cleaner_profile.pk},
+            {
+                "staff": self.cleaner_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 
         self.assertEqual(
             response.status_code,
             status.HTTP_201_CREATED,
+            response.data,
         )
 
         assignment = ServiceAssignment.objects.get()
@@ -550,7 +552,55 @@ class VisitWorkflowTests(APITestCase):
             self.supervisor,
         )
 
+        self.assertEqual(
+            assignment.shift,
+            "DAY",
+        )
+
         self.assertTrue(assignment.is_active)
+
+    def test_assignment_requires_an_explicit_shift(self):
+        visit = self.create_visit()
+        visit_service = self.add_service(visit)
+
+        self.authenticate(self.supervisor)
+
+        response = self.client.post(
+            self.assignment_url(visit, visit_service),
+            {
+                "staff": self.cleaner_profile.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(ServiceAssignment.objects.count(), 0)
+
+    def test_assignment_rejects_invalid_shift(self):
+        visit = self.create_visit()
+        visit_service = self.add_service(visit)
+
+        self.authenticate(self.supervisor)
+
+        response = self.client.post(
+            self.assignment_url(visit, visit_service),
+            {
+                "staff": self.cleaner_profile.pk,
+                "shift": "EVENING",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(ServiceAssignment.objects.count(), 0)
 
     def test_detailer_cannot_be_assigned_to_car_wash(self):
         visit = self.create_visit()
@@ -560,7 +610,10 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.detailer_profile.pk},
+            {
+                "staff": self.detailer_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 
@@ -579,7 +632,10 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.other_branch_cleaner_profile.pk},
+            {
+                "staff": self.other_branch_cleaner_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 
@@ -603,7 +659,10 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.cleaner_profile.pk},
+            {
+                "staff": self.cleaner_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 
@@ -621,6 +680,7 @@ class VisitWorkflowTests(APITestCase):
         ServiceAssignment.objects.create(
             visit_service=visit_service,
             staff=self.cleaner_profile,
+            shift="DAY",
             assigned_by=self.supervisor,
         )
 
@@ -628,7 +688,10 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.cleaner_profile.pk},
+            {
+                "staff": self.cleaner_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 
@@ -684,7 +747,6 @@ class VisitWorkflowTests(APITestCase):
             "Incorrect assignment",
         )
 
-        # The original record must remain in the database.
         self.assertTrue(
             ServiceAssignment.objects.filter(
                 pk=assignment.pk
@@ -702,7 +764,10 @@ class VisitWorkflowTests(APITestCase):
 
         response = self.client.post(
             self.assignment_url(visit, visit_service),
-            {"staff": self.cleaner_profile.pk},
+            {
+                "staff": self.cleaner_profile.pk,
+                "shift": "DAY",
+            },
             format="json",
         )
 

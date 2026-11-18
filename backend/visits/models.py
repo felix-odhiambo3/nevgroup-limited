@@ -76,13 +76,26 @@ class VisitService(models.Model):
     service_code = models.CharField(max_length=30)
     service_category = models.CharField(max_length=20)
 
+    # Historical snapshot of the pricing method used.
+    pricing_mode = models.CharField(
+        max_length=20,
+        choices=Service.PricingMode.choices,
+        default=Service.PricingMode.FIXED
+    )
+
+    # Historical snapshot of the vehicle category used for pricing.
+    vehicle_category_name = models.CharField(
+        max_length=80,
+        blank=True,
+        default=''
+    )
+
+    # Actual price charged for this service on this visit.
     original_price = models.DecimalField(
         max_digits=10,
         decimal_places=2
     )
 
-    # Historical snapshot of the reason or promotion
-    # associated with a zero-priced branch service.
     zero_price_reason = models.CharField(
         max_length=255,
         blank=True,
@@ -126,6 +139,10 @@ class VisitService(models.Model):
 
 class ServiceAssignment(models.Model):
 
+    class Shift(models.TextChoices):
+        DAY = 'DAY', 'Day'
+        NIGHT = 'NIGHT', 'Night'
+
     visit_service = models.ForeignKey(
         VisitService,
         on_delete=models.PROTECT,
@@ -136,6 +153,16 @@ class ServiceAssignment(models.Model):
         StaffProfile,
         on_delete=models.PROTECT,
         related_name='service_assignments'
+    )
+
+    # Historical snapshot of the shift assigned to this specific work.
+    # Nullable only to preserve legacy assignments with no reliable record.
+    shift = models.CharField(
+        max_length=10,
+        choices=Shift.choices,
+        null=True,
+        blank=True,
+        default=None
     )
 
     assigned_by = models.ForeignKey(
@@ -210,5 +237,4 @@ class ServiceAssignment(models.Model):
         )
 
 
-# Register the separate audit model with the visits application.
 from .assignment_corrections import ServiceAssignmentCorrection

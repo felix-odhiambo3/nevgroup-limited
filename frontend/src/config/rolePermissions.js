@@ -35,10 +35,6 @@ export const ROLE_DETAILS = Object.freeze({
   },
 })
 
-/*
- * Frontend route visibility.
- * Backend permissions remain authoritative.
- */
 export const ROUTE_PERMISSIONS = Object.freeze({
   '/dashboard': [
     ROLES.OWNER,
@@ -50,6 +46,11 @@ export const ROUTE_PERMISSIONS = Object.freeze({
   ],
 
   '/staff': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+  ],
+
+  '/services': [
     ROLES.OWNER,
     ROLES.ADMIN,
   ],
@@ -86,48 +87,23 @@ export const ROUTE_PERMISSIONS = Object.freeze({
   ],
 })
 
-/*
- * Backend-aligned operational permissions.
- * These permissions control frontend visibility only.
- * The backend remains responsible for enforcing security.
- */
 export const ACTION_PERMISSIONS = Object.freeze({
-  // Staff management
-  'staff.view': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
+  'staff.view': [ROLES.OWNER, ROLES.ADMIN],
+  'staff.register': [ROLES.OWNER, ROLES.ADMIN],
+  'staff.update': [ROLES.OWNER, ROLES.ADMIN],
 
-  'staff.register': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
+  'branches.view': [ROLES.OWNER, ROLES.ADMIN],
 
-  'staff.update': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
-  // Branches
-  'branches.view': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
-  // Attendance management
   'attendance.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
-
   'attendance.manage': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
-
-  // Personal attendance
   'attendance.self': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -137,16 +113,9 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.DETAILER,
   ],
 
-  // MyDay
-  'myDay.view': [
-    ROLES.CLEANER,
-  ],
+  'myDay.view': [ROLES.CLEANER],
+  'myDay.completeAssignment': [ROLES.CLEANER],
 
-  'myDay.completeAssignment': [
-    ROLES.CLEANER,
-  ],
-
-  // Vehicles
   'vehicles.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -155,19 +124,13 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
-
   'vehicles.register': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
     ROLES.DETAILER,
   ],
+  'vehicles.update': [ROLES.ADMIN, ROLES.SUPERVISOR],
 
-  'vehicles.update': [
-    ROLES.ADMIN,
-    ROLES.SUPERVISOR,
-  ],
-
-  // Vehicle categories
   'vehicleCategories.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -176,26 +139,16 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+  'vehicleCategories.create': [ROLES.ADMIN, ROLES.SUPERVISOR],
 
-  'vehicleCategories.create': [
-    ROLES.ADMIN,
-    ROLES.SUPERVISOR,
-  ],
-
-  // Customers
   'customers.view': [
     ROLES.ADMIN,
     ROLES.OWNER,
     ROLES.SUPERVISOR,
     ROLES.ACCOUNTS,
   ],
+  'customers.manage': [ROLES.ADMIN, ROLES.SUPERVISOR],
 
-  'customers.manage': [
-    ROLES.ADMIN,
-    ROLES.SUPERVISOR,
-  ],
-
-  // Visits
   'visits.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -204,7 +157,6 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
-
   'visits.create': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -212,7 +164,6 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.DETAILER,
   ],
 
-  // Visit services
   'visitServices.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -221,14 +172,12 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
-
   'visitServices.add': [
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
     ROLES.DETAILER,
   ],
 
-  // Employee assignments
   'assignments.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -237,42 +186,18 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
-
-  'assignments.create': [
-    ROLES.ADMIN,
-    ROLES.SUPERVISOR,
-  ],
-
-  'assignments.remove': [
-    ROLES.ADMIN,
-    ROLES.SUPERVISOR,
-  ],
-
+  'assignments.create': [ROLES.ADMIN, ROLES.SUPERVISOR],
+  'assignments.remove': [ROLES.ADMIN, ROLES.SUPERVISOR],
   'assignments.monitor': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
+  'assignments.reassign': [ROLES.SUPERVISOR],
+  'assignments.completeBySupervisor': [ROLES.SUPERVISOR],
+  'assignments.correctCompleted': [ROLES.OWNER, ROLES.ADMIN],
+  'assignments.viewCorrectionHistory': [ROLES.OWNER, ROLES.ADMIN],
 
-  'assignments.reassign': [
-    ROLES.SUPERVISOR,
-  ],
-
-  'assignments.completeBySupervisor': [
-    ROLES.SUPERVISOR,
-  ],
-
-  'assignments.correctCompleted': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
-  'assignments.viewCorrectionHistory': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
-  // Services and pricing
   'services.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -281,40 +206,23 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.CLEANER,
     ROLES.DETAILER,
   ],
+  'services.manage': [ROLES.OWNER, ROLES.ADMIN],
 
-  'services.manage': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
-  // Customer credit accounts
   'creditAccounts.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.ACCOUNTS,
   ],
+  'creditAccounts.manage': [ROLES.ADMIN],
 
-  'creditAccounts.manage': [
-    ROLES.ADMIN,
-  ],
-
-  // Credit ledger
   'creditLedger.view': [
     ROLES.OWNER,
     ROLES.ADMIN,
     ROLES.ACCOUNTS,
   ],
-
-  'creditLedger.recordPayment': [
-    ROLES.ADMIN,
-    ROLES.ACCOUNTS,
-  ],
+  'creditLedger.recordPayment': [ROLES.ADMIN, ROLES.ACCOUNTS],
 })
 
-/*
- * Normalize user role.
- * Superusers are treated as OWNER.
- */
 export function getUserRole(user) {
   if (!user) return null
 
@@ -327,9 +235,7 @@ export function getUserRole(user) {
 
   const role = user.role
 
-  if (typeof role !== 'string') {
-    return null
-  }
+  if (typeof role !== 'string') return null
 
   const normalizedRole = role.trim().toUpperCase()
 

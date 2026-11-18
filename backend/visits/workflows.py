@@ -1,7 +1,5 @@
 
 from django.db import transaction
-from django.shortcuts import get_object_or_404
-
 from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -9,12 +7,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from branches.models import Branch
-from services.models import Service, BranchServicePrice
+from services.models import (
+    Service,
+    BranchServicePrice,
+    BranchServiceCategoryPrice,
+)
 from staff.models import StaffProfile
 from vehicles.models import Vehicle
 from vehicles.serializers import VehicleSerializer
 
-from .models import Visit, VisitService, ServiceAssignment
+from .models import Visit, ServiceAssignment
 from .serializers import (
     VisitSerializer,
     VisitServiceSerializer,
@@ -22,22 +24,66 @@ from .serializers import (
 )
 
 
+class WorkflowStaffAssignmentSerializer(serializers.Serializer):
+    staff_id = serializers.IntegerField(min_value=1)
+
+    shift = serializers.ChoiceField(
+        choices=ServiceAssignment.Shift.choices,
+        required=True,
+    )
+
+
 class WorkflowServiceItemSerializer(serializers.Serializer):
     service_id = serializers.IntegerField(min_value=1)
 
+    staff_assignments = WorkflowStaffAssignmentSerializer(
+        many=True,
+        required=False,
+        default=list,
+    )
+
+    # Used only for SUPERVISOR_SET services.
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=0,
+        required=False,
+    )
+
+    zero_price_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+
+    # Reject clients still using the old assignment format.
     staff_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         required=False,
-        default=list,
-        allow_empty=True,
+        write_only=True,
     )
 
-    def validate_staff_ids(self, value):
-        if len(value) != len(set(value)):
-            raise serializers.ValidationError(
-                'The same employee cannot be selected more than once.'
-            )
-        return value
+    def validate(self, attrs):
+        if 'staff_ids' in attrs:
+            raise serializers.ValidationError({
+                'staff_ids': (
+                    'The staff_ids format is no longer supported. '
+                    'Use staff_assignments with an explicit DAY or NIGHT shift.'
+                )
+            })
+
+        assignments = attrs.get('staff_assignments', [])
+        staff_ids = [item['staff_id'] for item in assignments]
+
+        if len(staff_ids) != len(set(staff_ids)):
+            raise serializers.ValidationError({
+                'staff_assignments': (
+                    'The same employee cannot be selected more than once '
+                    'for the same service.'
+                )
+            })
+
+        return attrs
 
 
 class VehicleIntakeWorkflowSerializer(serializers.Serializer):
@@ -46,9 +92,7 @@ class VehicleIntakeWorkflowSerializer(serializers.Serializer):
         required=False,
     )
 
-    vehicle = serializers.DictField(
-        required=False,
-    )
+    vehicle = serializers.DictField(required=False)
 
     branch_id = serializers.IntegerField(
         min_value=1,
@@ -113,12 +157,14 @@ class VehicleIntakeWorkflowSerializer(serializers.Serializer):
 
 class VehicleIntakeWorkflowView(APIView):
     """
-    Create a vehicle visit, services and employee assignments
+    Create a vehicle visit, its services and employee assignments
     through one atomic request.
 
-    Service prices are retrieved from the servicing branch's
-    active BranchServicePrice records and snapshotted on each
-    VisitService.
+    Service prices are calculated from the servicing branch's active
+    pricing configuration and snapshotted on each VisitService.
+
+    Every new employee assignment must include an explicit DAY
+    or NIGHT shift.
     """
 
     permission_classes = [IsAuthenticated]
@@ -199,7 +245,6 @@ class VehicleIntakeWorkflowView(APIView):
             return branch, None
 
         profile = self.get_active_staff_profile(user)
-
         submitted_branch_id = data.get('branch_id')
 
         if (
@@ -296,12 +341,153 @@ class VehicleIntakeWorkflowView(APIView):
             data=vehicle_data,
             context={'request': request},
         )
-
         vehicle_serializer.is_valid(raise_exception=True)
 
         return None, vehicle_serializer, True
 
-    def prepare_services(self, request, data, servicing_branch):
+    def validate_service_pricing(
+        self,
+        request,
+        service,
+        branch_price,
+        vehicle,
+        item,
+        servicing_branch,
+    ):
+        role = getattr(request.user, 'role', None)
+        pricing_mode = service.pricing_mode
+
+        if pricing_mode == Service.PricingMode.FIXED:
+            if branch_price.price is None:
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} has no configured fixed price '
+                        f'at {servicing_branch.name}.'
+                    )
+                })
+
+            if (
+                branch_price.price == 0
+                and not str(branch_price.zero_price_reason).strip()
+            ):
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} has a zero price but no reason '
+                        f'or promotion is configured.'
+                    )
+                })
+
+            if 'price' in item or item.get('zero_price_reason'):
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} uses a configured branch price. '
+                        'A manual price cannot be submitted.'
+                    )
+                })
+
+        elif pricing_mode == Service.PricingMode.VEHICLE_CATEGORY:
+            if branch_price.price is not None:
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} has an invalid category-pricing '
+                        'configuration. Its branch-level price must be blank.'
+                    )
+                })
+
+            if not vehicle.category_id:
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} requires a vehicle category. '
+                        'Select or update the vehicle category first.'
+                    )
+                })
+
+            category_price = (
+                BranchServiceCategoryPrice.objects
+                .filter(
+                    branch_service_price=branch_price,
+                    vehicle_category_id=vehicle.category_id,
+                    is_active=True,
+                )
+                .first()
+            )
+
+            if category_price is None:
+                raise ValidationError({
+                    'services': (
+                        f'No active {service.name} price is configured '
+                        f'for vehicle category {vehicle.category.name} '
+                        f'at {servicing_branch.name}.'
+                    )
+                })
+
+            if (
+                category_price.price == 0
+                and not str(category_price.zero_price_reason).strip()
+            ):
+                raise ValidationError({
+                    'services': (
+                        f'The zero price for {service.name} and '
+                        f'{vehicle.category.name} has no reason or promotion.'
+                    )
+                })
+
+            if 'price' in item or item.get('zero_price_reason'):
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} uses vehicle-category pricing. '
+                        'A manual price cannot be submitted.'
+                    )
+                })
+
+        elif pricing_mode == Service.PricingMode.SUPERVISOR_SET:
+            if role != 'SUPERVISOR':
+                raise PermissionDenied(
+                    f'Only a SUPERVISOR can add {service.name} '
+                    'and enter its agreed price.'
+                )
+
+            if branch_price.price is not None:
+                raise ValidationError({
+                    'services': (
+                        f'{service.name} has an invalid supervisor-set '
+                        'pricing configuration. Its branch-level price '
+                        'must be blank.'
+                    )
+                })
+
+            if 'price' not in item:
+                raise ValidationError({
+                    'services': (
+                        f'Enter the agreed price for {service.name}.'
+                    )
+                })
+
+            entered_price = item['price']
+            reason = str(item.get('zero_price_reason', '')).strip()
+
+            if entered_price == 0 and not reason:
+                raise ValidationError({
+                    'services': (
+                        f'A reason or promotion is required for a '
+                        f'zero-priced {service.name}.'
+                    )
+                })
+
+        else:
+            raise ValidationError({
+                'services': (
+                    f'{service.name} has an unsupported pricing method.'
+                )
+            })
+
+    def prepare_services(
+        self,
+        request,
+        data,
+        servicing_branch,
+        vehicle,
+    ):
         role = getattr(request.user, 'role', None)
         service_items = data.get('services', [])
 
@@ -323,7 +509,7 @@ class VehicleIntakeWorkflowView(APIView):
         prepared = []
         can_assign = role in self.ASSIGNMENT_ROLES
 
-        for index, item in enumerate(service_items):
+        for item in service_items:
             service = (
                 Service.objects
                 .filter(
@@ -340,8 +526,6 @@ class VehicleIntakeWorkflowView(APIView):
                     )
                 })
 
-            # Every service must have an active price for the
-            # branch where this visit is being serviced.
             branch_price = (
                 BranchServicePrice.objects
                 .filter(
@@ -357,9 +541,18 @@ class VehicleIntakeWorkflowView(APIView):
                     'services': (
                         f'{service.name} has no active price configured '
                         f'for {servicing_branch.name}. Ask an admin or '
-                        f'owner to configure the branch price.'
+                        'owner to configure the branch price.'
                     )
                 })
+
+            self.validate_service_pricing(
+                request=request,
+                service=service,
+                branch_price=branch_price,
+                vehicle=vehicle,
+                item=item,
+                servicing_branch=servicing_branch,
+            )
 
             if service.category == Service.Category.CAR_WASH:
                 expected_role = 'CLEANER'
@@ -372,29 +565,34 @@ class VehicleIntakeWorkflowView(APIView):
                     )
                 })
 
-            staff_ids = item.get('staff_ids', [])
+            requested_assignments = item.get('staff_assignments', [])
 
-            if staff_ids and not can_assign:
+            if requested_assignments and not can_assign:
                 raise PermissionDenied(
                     'Only ADMIN and SUPERVISOR accounts can assign employees.'
                 )
 
-            if can_assign and not staff_ids:
+            if can_assign and not requested_assignments:
                 raise ValidationError({
                     'services': (
-                        f'Assign at least one eligible employee to '
-                        f'{service.name}.'
+                        f'Assign at least one eligible employee with an '
+                        f'explicit shift to {service.name}.'
                     )
                 })
 
-            staff_members = []
+            prepared_assignments = []
 
-            if staff_ids:
-                staff_members = list(
+            if requested_assignments:
+                requested_ids = [
+                    assignment['staff_id']
+                    for assignment in requested_assignments
+                ]
+
+                staff_members = (
                     StaffProfile.objects
                     .select_related('user', 'branch')
                     .filter(
-                        pk__in=staff_ids,
+                        pk__in=requested_ids,
                         branch=servicing_branch,
                         employment_status=StaffProfile.EmploymentStatus.ACTIVE,
                         is_archived=False,
@@ -402,16 +600,23 @@ class VehicleIntakeWorkflowView(APIView):
                     )
                 )
 
-                if len(staff_members) != len(staff_ids):
+                staff_by_id = {
+                    staff.pk: staff
+                    for staff in staff_members
+                }
+
+                if len(staff_by_id) != len(requested_ids):
                     raise ValidationError({
                         'services': (
                             f'One or more selected employees for '
                             f'{service.name} are unavailable or do not '
-                            f'belong to this branch.'
+                            'belong to this branch.'
                         )
                     })
 
-                for staff in staff_members:
+                for requested in requested_assignments:
+                    staff = staff_by_id[requested['staff_id']]
+
                     if staff.user.role != expected_role:
                         raise ValidationError({
                             'services': (
@@ -422,10 +627,16 @@ class VehicleIntakeWorkflowView(APIView):
                             )
                         })
 
+                    prepared_assignments.append({
+                        'staff': staff,
+                        'shift': requested['shift'],
+                    })
+
             prepared.append({
                 'service': service,
-                'branch_price': branch_price,
-                'staff': staff_members,
+                'price': item.get('price'),
+                'zero_price_reason': item.get('zero_price_reason', ''),
+                'staff_assignments': prepared_assignments,
             })
 
         return prepared
@@ -458,18 +669,17 @@ class VehicleIntakeWorkflowView(APIView):
             )
         )
 
+        # Saving the new vehicle inside this atomic transaction is safe:
+        # any later validation failure rolls the vehicle creation back.
+        if is_new_vehicle:
+            vehicle = vehicle_serializer.save()
+
         prepared_services = self.prepare_services(
             request=request,
             data=data,
             servicing_branch=servicing_branch,
+            vehicle=vehicle,
         )
-
-        # All permissions and input validation have passed.
-        # Create the vehicle, visit, services and assignments
-        # together within this database transaction.
-
-        if is_new_vehicle:
-            vehicle = vehicle_serializer.save()
 
         visit = Visit.objects.create(
             vehicle=vehicle,
@@ -484,26 +694,37 @@ class VehicleIntakeWorkflowView(APIView):
 
         for item in prepared_services:
             service = item['service']
-            branch_price = item['branch_price']
 
-            visit_service = VisitService.objects.create(
-                visit=visit,
-                service=service,
-                service_name=service.name,
-                service_code=service.code,
-                service_category=service.category,
-                original_price=branch_price.price,
-                duration_minutes=service.duration_minutes,
-                requires_timer=service.requires_timer,
-                added_by=request.user,
+            service_data = {
+                'service': service.pk,
+            }
+
+            if item['price'] is not None:
+                service_data['price'] = item['price']
+
+            if item['zero_price_reason']:
+                service_data['zero_price_reason'] = (
+                    item['zero_price_reason']
+                )
+
+            visit_service_serializer = VisitServiceSerializer(
+                data=service_data,
+                context={
+                    'request': request,
+                    'visit': visit,
+                },
             )
+            visit_service_serializer.is_valid(raise_exception=True)
+
+            visit_service = visit_service_serializer.save()
 
             assignments = []
 
-            for staff in item['staff']:
+            for staff_assignment in item['staff_assignments']:
                 assignment = ServiceAssignment.objects.create(
                     visit_service=visit_service,
-                    staff=staff,
+                    staff=staff_assignment['staff'],
+                    shift=staff_assignment['shift'],
                     assigned_by=request.user,
                 )
                 assignments.append(assignment)
@@ -511,7 +732,10 @@ class VehicleIntakeWorkflowView(APIView):
             service_results.append({
                 'service': VisitServiceSerializer(
                     visit_service,
-                    context={'request': request, 'visit': visit},
+                    context={
+                        'request': request,
+                        'visit': visit,
+                    },
                 ).data,
                 'assignments': ServiceAssignmentSerializer(
                     assignments,

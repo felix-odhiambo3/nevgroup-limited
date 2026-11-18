@@ -20,6 +20,7 @@ import {
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import StaffPage from './pages/StaffPage'
+import ServicesPage from './pages/ServicesPage'
 import AttendancePage from './pages/AttendancePage'
 import MyAttendancePage from './pages/MyAttendancePage'
 import MyDayPage from './pages/MyDayPage'
@@ -33,7 +34,6 @@ function LoadingScreen() {
     <div className="flex min-h-screen items-center justify-center bg-slate-100">
       <div className="text-center">
         <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-red-600 border-t-transparent" />
-
         <p className="font-semibold text-slate-700">
           Loading NEV CARWASH...
         </p>
@@ -46,9 +46,7 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   const location = useLocation()
 
-  if (loading) {
-    return <LoadingScreen />
-  }
+  if (loading) return <LoadingScreen />
 
   if (!user) {
     return (
@@ -60,18 +58,10 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  const allowed = canAccessRoute(
-    user,
-    location.pathname
-  )
+  const allowed = canAccessRoute(user, location.pathname)
 
   if (!allowed) {
-    return (
-      <Navigate
-        to={getDefaultRoute(user)}
-        replace
-      />
-    )
+    return <Navigate to={getDefaultRoute(user)} replace />
   }
 
   return children
@@ -80,9 +70,7 @@ function ProtectedRoute({ children }) {
 function AppRoutes() {
   const { user, loading } = useAuth()
 
-  if (loading) {
-    return <LoadingScreen />
-  }
+  if (loading) return <LoadingScreen />
 
   return (
     <Routes>
@@ -113,31 +101,12 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route
-          path="/staff"
-          element={<StaffPage />}
-        />
-
-        <Route
-          path="/attendance"
-          element={<AttendancePage />}
-        />
-
-        <Route
-          path="/my-attendance"
-          element={<MyAttendancePage />}
-        />
-
-        <Route
-          path="/my-day"
-          element={<MyDayPage />}
-        />
-
-        <Route
-          path="/check-in"
-          element={<CheckInPage />}
-        />
-
+        <Route path="/staff" element={<StaffPage />} />
+        <Route path="/services" element={<ServicesPage />} />
+        <Route path="/attendance" element={<AttendancePage />} />
+        <Route path="/my-attendance" element={<MyAttendancePage />} />
+        <Route path="/my-day" element={<MyDayPage />} />
+        <Route path="/check-in" element={<CheckInPage />} />
         <Route
           path="/monitor-assignments"
           element={<MonitorAssignmentsPage />}
