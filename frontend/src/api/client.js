@@ -1,7 +1,10 @@
 
 import axios from 'axios'
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api/'
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://127.0.0.1:8000/api/'
+).replace(/\/?$/, '/')
 
 const clearAuthTokens = () => {
   sessionStorage.removeItem('access_token')
@@ -60,7 +63,6 @@ api.interceptors.response.use(
 
         sessionStorage.setItem('access_token', newAccessToken)
 
-        // SimpleJWT may rotate the refresh token.
         if (newRefreshToken) {
           sessionStorage.setItem('refresh_token', newRefreshToken)
         }
