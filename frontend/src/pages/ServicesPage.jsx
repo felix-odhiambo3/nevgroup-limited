@@ -1,7 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  BadgeDollarSign,
   CheckCircle2,
   CircleOff,
   Edit,
@@ -105,6 +104,7 @@ function Modal({ title, onClose, children }) {
             <X size={20} />
           </button>
         </div>
+
         <div className="p-6">{children}</div>
       </div>
     </div>
@@ -192,9 +192,7 @@ export default function ServicesPage() {
           (branch) => String(branch.id) === String(profileBranch)
         )
 
-        setBranchId(
-          String(matchingBranch?.id ?? branchRows[0].id)
-        )
+        setBranchId(String(matchingBranch?.id ?? branchRows[0].id))
       }
     } catch (err) {
       setError(getErrorMessage(err))
@@ -206,7 +204,7 @@ export default function ServicesPage() {
   const loadPrices = useCallback(async () => {
     if (!branchId) {
       setBranchPrices([])
-      setCategoryPrices(categoryPriceRows)
+      setCategoryPrices([])
       return
     }
 
@@ -224,13 +222,9 @@ export default function ServicesPage() {
         )
       )
 
-      setCategoryPrices(
-        categoryPriceRows.filter(
-          (item) =>
-            String(item.branch_service_price?.branch ?? item.branch) ===
-            String(branchId)
-        )
-      )
+      // branch_service_price is a primary-key value in the category-price
+      // serializer, not a nested object. The API already applies branch scope.
+      setCategoryPrices(categoryPriceRows)
     } catch (err) {
       setError(getErrorMessage(err))
     }
@@ -268,8 +262,7 @@ export default function ServicesPage() {
   const getCategoryPrices = (branchPriceId) =>
     categoryPrices.filter(
       (item) =>
-        String(item.branch_service_price?.id ?? item.branch_service_price) ===
-        String(branchPriceId)
+        String(item.branch_service_price) === String(branchPriceId)
     )
 
   const refreshAll = async () => {
@@ -281,6 +274,7 @@ export default function ServicesPage() {
     setEditingService(null)
     setServiceForm(emptyServiceForm)
     setError('')
+    setNotice('')
     setServiceModalOpen(true)
   }
 
@@ -298,6 +292,7 @@ export default function ServicesPage() {
       is_active: Boolean(service.is_active),
     })
     setError('')
+    setNotice('')
     setServiceModalOpen(true)
   }
 
@@ -310,18 +305,21 @@ export default function ServicesPage() {
     const payload = {
       ...serviceForm,
       price: serviceForm.price === '' ? '0' : serviceForm.price,
-      duration_minutes: serviceForm.duration_minutes === ''
-        ? null
-        : Number(serviceForm.duration_minutes),
-      requires_timer: serviceForm.category === 'DETAILING'
-        ? false
-        : serviceForm.requires_timer,
+      duration_minutes:
+        serviceForm.duration_minutes === ''
+          ? null
+          : Number(serviceForm.duration_minutes),
+      requires_timer:
+        serviceForm.category === 'DETAILING'
+          ? false
+          : serviceForm.requires_timer,
     }
 
     try {
       if (editingService) {
         // Pricing mode changes are deliberately not offered in edit mode.
         delete payload.pricing_mode
+
         await updateService(editingService.id, payload)
         setNotice('Service updated successfully.')
       } else {
@@ -342,13 +340,11 @@ export default function ServicesPage() {
   const toggleServiceStatus = async (service) => {
     const action = service.is_active ? 'deactivate' : 'reactivate'
 
-    if (
-      !window.confirm(
-        `Are you sure you want to ${action} "${service.name}"?`
-      )
-    ) {
-      return
-    }
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} "${service.name}"?`
+    )
+
+    if (!confirmed) return
 
     setSaving(true)
     setError('')
@@ -359,10 +355,19 @@ export default function ServicesPage() {
         is_active: !service.is_active,
       })
 
-      setNotice(
-        `${service.name} ${service.is_active ? 'deactivated' : 'reactivated'} successfully.`
+      setServices((currentServices) =>
+        currentServices.map((item) =>
+          item.id === service.id
+            ? { ...item, is_active: !service.is_active }
+            : item
+        )
       )
-      await loadCatalogue()
+
+      setNotice(
+        `${service.name} ${
+          service.is_active ? 'deactivated' : 'reactivated'
+        } successfully.`
+      )
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -514,7 +519,8 @@ export default function ServicesPage() {
           <button
             type="button"
             onClick={refreshAll}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            disabled={loading || saving}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw size={16} />
             Refresh
@@ -691,7 +697,8 @@ export default function ServicesPage() {
                               >
                                 <div>
                                   <span className="text-sm font-medium text-slate-800">
-                                    {row.vehicle_category_name || `Category ${row.vehicle_category}`}
+                                    {row.vehicle_category_name ||
+                                      `Category ${row.vehicle_category}`}
                                   </span>
                                   <span className="ml-3 text-sm text-slate-600">
                                     {money(row.price)}
@@ -725,11 +732,14 @@ export default function ServicesPage() {
         )}
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-4 border-b border-slate-200 pb-4">
           <h2 className="font-bold text-slate-900">Service catalogue</h2>
           <p className="text-sm text-slate-500">
             {filteredServices.length} service(s) found
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Use the action buttons on each service to edit or change its status.
           </p>
         </div>
 
@@ -743,90 +753,113 @@ export default function ServicesPage() {
             No services match your search.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-3">Service</th>
-                  <th className="px-5 py-3">Category</th>
-                  <th className="px-5 py-3">Pricing mode</th>
-                  <th className="px-5 py-3">Catalogue price</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {filteredServices.map((service) => (
+              <article
+                key={service.id}
+                className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="break-words text-base font-bold text-slate-900">
+                      {service.name}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Code: {service.code}
+                    </p>
+                  </div>
 
-              <tbody className="divide-y divide-slate-100">
-                {filteredServices.map((service) => (
-                  <tr key={service.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-900">
-                        {service.name}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {service.code}
-                      </p>
-                    </td>
+                  {service.is_active ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 size={13} />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      <CircleOff size={13} />
+                      Inactive
+                    </span>
+                  )}
+                </div>
 
-                    <td className="px-5 py-4 text-slate-600">
+                <div className="mt-4 grid grid-cols-2 gap-3 border-y border-slate-100 py-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Category</p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
                       {service.category === 'CAR_WASH'
                         ? 'Car Wash'
                         : 'Detailing'}
-                    </td>
+                    </p>
+                  </div>
 
-                    <td className="px-5 py-4 text-slate-600">
+                  <div>
+                    <p className="text-xs text-slate-500">Pricing mode</p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
                       {PRICING_MODES.find(
                         (mode) => mode.value === service.pricing_mode
                       )?.label || service.pricing_mode}
-                    </td>
+                    </p>
+                  </div>
 
-                    <td className="px-5 py-4 text-slate-600">
+                  <div>
+                    <p className="text-xs text-slate-500">Catalogue price</p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
                       {money(service.price)}
-                    </td>
+                    </p>
+                  </div>
 
-                    <td className="px-5 py-4">
-                      {service.is_active ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                          <CheckCircle2 size={13} />
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                          <CircleOff size={13} />
-                          Inactive
-                        </span>
-                      )}
-                    </td>
+                  <div>
+                    <p className="text-xs text-slate-500">Duration</p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
+                      {service.duration_minutes
+                        ? `${service.duration_minutes} minutes`
+                        : 'Not specified'}
+                    </p>
+                  </div>
+                </div>
 
-                    <td className="px-5 py-4">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditService(service)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        >
-                          <Edit size={14} />
-                          Edit
-                        </button>
+                {service.description && (
+                  <p className="mt-3 break-words text-sm text-slate-600">
+                    {service.description}
+                  </p>
+                )}
 
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => toggleServiceStatus(service)}
-                          className={`rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50 ${
-                            service.is_active
-                              ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                              : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                          }`}
-                        >
-                          {service.is_active ? 'Deactivate' : 'Reactivate'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => openEditService(service)}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Edit size={15} />
+                    Edit
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => toggleServiceStatus(service)}
+                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      service.is_active
+                        ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                        : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {service.is_active ? (
+                      <>
+                        <CircleOff size={15} />
+                        Deactivate
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={15} />
+                        Reactivate
+                      </>
+                    )}
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>
@@ -844,7 +877,10 @@ export default function ServicesPage() {
                   className={inputClass}
                   value={serviceForm.name}
                   onChange={(event) =>
-                    setServiceForm({ ...serviceForm, name: event.target.value })
+                    setServiceForm({
+                      ...serviceForm,
+                      name: event.target.value,
+                    })
                   }
                 />
               </Field>
@@ -872,9 +908,10 @@ export default function ServicesPage() {
                     setServiceForm({
                       ...serviceForm,
                       category: event.target.value,
-                      requires_timer: event.target.value === 'DETAILING'
-                        ? false
-                        : serviceForm.requires_timer,
+                      requires_timer:
+                        event.target.value === 'DETAILING'
+                          ? false
+                          : serviceForm.requires_timer,
                     })
                   }
                 >
@@ -922,7 +959,10 @@ export default function ServicesPage() {
                   className={inputClass}
                   value={serviceForm.price}
                   onChange={(event) =>
-                    setServiceForm({ ...serviceForm, price: event.target.value })
+                    setServiceForm({
+                      ...serviceForm,
+                      price: event.target.value,
+                    })
                   }
                 />
               </Field>
@@ -982,6 +1022,7 @@ export default function ServicesPage() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={saving}
@@ -1074,6 +1115,7 @@ export default function ServicesPage() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={saving}
@@ -1088,7 +1130,11 @@ export default function ServicesPage() {
 
       {categoryModalOpen && categoryPriceParent && (
         <Modal
-          title={editingCategoryPrice ? 'Edit Category Price' : 'Add Category Price'}
+          title={
+            editingCategoryPrice
+              ? 'Edit Category Price'
+              : 'Add Category Price'
+          }
           onClose={() => setCategoryModalOpen(false)}
         >
           <form onSubmit={saveCategoryPrice} className="space-y-4">
@@ -1175,6 +1221,7 @@ export default function ServicesPage() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={saving}
