@@ -11,3 +11,6 @@ sqlparse==0.6.1
 typing_extensions==4.16.0
 tzdata==2026.6
 python-decouple
+gunicorn==27.0.1
+dj-database-url==3.1.2
+whitenoise
