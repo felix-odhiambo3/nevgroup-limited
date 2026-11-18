@@ -1,7 +1,11 @@
+
+import os
+from secrets import compare_digest
+
 from django.contrib.auth import get_user_model
 
 from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -36,6 +40,62 @@ def get_manageable_users(request):
         )
 
     return queryset
+
+
+class ProductionUserDiagnosticView(APIView):
+    """
+    Temporary, read-only production account diagnostic.
+    Access requires a secret configured in the environment.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        expected_token = os.environ.get(
+            "PRODUCTION_DIAGNOSTIC_TOKEN",
+            ""
+        )
+        supplied_token = request.headers.get(
+            "X-Production-Diagnostic-Token",
+            ""
+        )
+
+        if (
+            not expected_token
+            or not supplied_token
+            or not compare_digest(supplied_token, expected_token)
+        ):
+            return Response(
+                {"detail": "Not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        username = request.query_params.get("username", "").strip()
+
+        if not username:
+            return Response(
+                {"detail": "Provide a username query parameter."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = User.objects.filter(
+            username__iexact=username
+        ).first()
+
+        if not user:
+            return Response({
+                "exists": False,
+                "username": username,
+            })
+
+        return Response({
+            "exists": True,
+            "username": user.username,
+            "role": user.role,
+            "is_active": user.is_active,
+            "is_staff": user.is_staff,
+            "is_superuser": user.is_superuser,
+        })
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
