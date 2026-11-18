@@ -69,6 +69,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+
+    # Serve collected static files in production.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -181,6 +185,16 @@ MEDIA_URL = "/media/"
 
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Django 5.2 storage configuration.
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
 
 # =====================================================
 # DEFAULT MODEL SETTINGS
@@ -255,6 +269,7 @@ if not DEBUG and DATABASE_URL:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
     SECURE_CONTENT_TYPE_NOSNIFF = True
+
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
