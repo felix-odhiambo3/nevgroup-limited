@@ -1,20 +1,29 @@
 
 """
-Django settings for config project.
+Django settings for NEV CARWASH / Diamond Space project.
+Supports local Windows development and Render production.
 """
 
 from pathlib import Path
 from datetime import timedelta
 import os
 
+import dj_database_url
 from dotenv import load_dotenv
 from decouple import config
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
+
+# =====================================================
+# SECURITY
+# =====================================================
+
 SECRET_KEY = config("SECRET_KEY")
+
 DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = [
@@ -25,6 +34,11 @@ ALLOWED_HOSTS = [
     ).split(",")
     if host.strip()
 ]
+
+
+# =====================================================
+# APPLICATIONS
+# =====================================================
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -48,6 +62,11 @@ INSTALLED_APPS = [
     "payments",
 ]
 
+
+# =====================================================
+# MIDDLEWARE
+# =====================================================
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -58,6 +77,11 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+
+# =====================================================
+# URLS AND TEMPLATES
+# =====================================================
 
 ROOT_URLCONF = "config.urls"
 
@@ -78,21 +102,43 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": config("DB_PASSWORD"),
-        "HOST": config("DB_HOST"),
-        "PORT": config("DB_PORT", default="5432"),
-        "OPTIONS": {
-            "sslmode": "require",
-        },
-        "CONN_MAX_AGE": 60,
-        "CONN_HEALTH_CHECKS": True,
+
+# =====================================================
+# DATABASE
+# =====================================================
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    # Render PostgreSQL
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
     }
-}
+
+else:
+    # Local Windows PostgreSQL development
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME", default="diamond_space_db"),
+            "USER": config("DB_USER", default="postgres"),
+            "PASSWORD": config("DB_PASSWORD", default=""),
+            "HOST": config("DB_HOST", default="localhost"),
+            "PORT": config("DB_PORT", default="5432"),
+            "CONN_MAX_AGE": 60,
+            "CONN_HEALTH_CHECKS": True,
+        }
+    }
+
+
+# =====================================================
+# PASSWORD VALIDATION
+# =====================================================
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -109,18 +155,50 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+
+# =====================================================
+# INTERNATIONALIZATION
+# =====================================================
+
 LANGUAGE_CODE = "en-us"
 
 TIME_ZONE = "Africa/Nairobi"
 
 USE_I18N = True
+
 USE_TZ = True
 
-STATIC_URL = "static/"
+
+# =====================================================
+# STATIC AND MEDIA FILES
+# =====================================================
+
+STATIC_URL = "/static/"
+
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = "/media/"
+
+MEDIA_ROOT = BASE_DIR / "media"
+
+
+# =====================================================
+# DEFAULT MODEL SETTINGS
+# =====================================================
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+# =====================================================
+# CUSTOM USER MODEL
+# =====================================================
+
 AUTH_USER_MODEL = "accounts.User"
+
+
+# =====================================================
+# DJANGO REST FRAMEWORK
+# =====================================================
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -131,6 +209,11 @@ REST_FRAMEWORK = {
     ],
 }
 
+
+# =====================================================
+# JWT AUTHENTICATION
+# =====================================================
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
@@ -139,6 +222,45 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
+
+# =====================================================
+# CORS
+# =====================================================
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+
+
+# =====================================================
+# PRODUCTION SECURITY
+# =====================================================
+
+if not DEBUG and DATABASE_URL:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+    SECURE_SSL_REDIRECT = True
+
+    SESSION_COOKIE_SECURE = True
+
+    CSRF_COOKIE_SECURE = True
+
+    SECURE_HSTS_SECONDS = 31536000
+
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CSRF_TRUSTED_ORIGINS",
+        ""
+    ).split(",")
+    if origin.strip()
 ]
