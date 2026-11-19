@@ -9,7 +9,6 @@ const pageTitles = {
   '/dashboard': 'Dashboard',
   '/my-day': 'MyDay',
   '/staff': 'Staff Management',
-  '/services': 'Services Management',
   '/attendance': 'Attendance & Shifts',
   '/my-attendance': 'My Attendance',
   '/check-in': 'Vehicle Check-in',

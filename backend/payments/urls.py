@@ -1,3 +1,4 @@
+
 from django.urls import path
 
 from payments.views import (
@@ -8,7 +9,6 @@ from payments.views import (
     InvoicePaymentCollectionCreateView,
     PaymentReversalListView,
     PaymentReversalCreateView,
-    SupervisorRevenueSummaryView,
 )
 
 urlpatterns = [
@@ -46,10 +46,5 @@ urlpatterns = [
         'entries/<int:payment_entry_id>/reversals/',
         PaymentReversalCreateView.as_view(),
         name='payment-reversal-create',
-    ),
-    path(
-        'revenue-summary/',
-        SupervisorRevenueSummaryView.as_view(),
-        name='supervisor-revenue-summary',
     ),
 ]

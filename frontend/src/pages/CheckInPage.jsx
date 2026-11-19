@@ -25,11 +25,7 @@ import {
 } from '../api/vehicles'
 
 import { createVehicleIntakeWorkflow } from '../api/visits'
-import {
-  getServices,
-  getBranchServicePrices,
-  getBranchServiceCategoryPrices,
-} from '../api/services'
+import { getServices } from '../api/services'
 import { getBranches } from '../api/branches'
 
 import {
@@ -117,7 +113,7 @@ const getErrorMessage = (error) => {
 const formatKES = (value) => {
   const amount = Number(value)
 
-  if (!Number.isFinite(amount)) return 'Price unavailable'
+  if (!Number.isFinite(amount)) return 'KES 0.00'
 
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
@@ -146,26 +142,6 @@ const getStaffName = (staff) =>
   staff.username ||
   staff.staff_number ||
   `Staff member #${staff.id}`
-
-const getVehicleCategoryId = (vehicle) => {
-  if (!vehicle) return ''
-
-  if (vehicle.category_id) return vehicle.category_id
-
-  if (vehicle.category && typeof vehicle.category === 'object') {
-    return vehicle.category.id || ''
-  }
-
-  if (
-    vehicle.category &&
-    (typeof vehicle.category === 'number' ||
-      /^\d+$/.test(String(vehicle.category)))
-  ) {
-    return vehicle.category
-  }
-
-  return ''
-}
 
 // --------------------------------------------------
 // SMALL REUSABLE UI COMPONENTS
@@ -234,8 +210,6 @@ export default function CheckInPage() {
   const [branches, setBranches] = useState([])
   const [categories, setCategories] = useState([])
   const [services, setServices] = useState([])
-  const [branchPrices, setBranchPrices] = useState([])
-  const [categoryPrices, setCategoryPrices] = useState([])
   const [branchStaff, setBranchStaff] = useState([])
   const [staffProfile, setStaffProfile] = useState(null)
 
@@ -276,7 +250,6 @@ export default function CheckInPage() {
 
   const [loading, setLoading] = useState(true)
   const [loadingStaff, setLoadingStaff] = useState(false)
-  const [loadingPrices, setLoadingPrices] = useState(false)
   const [searching, setSearching] = useState(false)
   const [searchingModels, setSearchingModels] = useState(false)
 
@@ -303,10 +276,6 @@ export default function CheckInPage() {
     ? servicingBranchId
     : ownBranchId
 
-  const selectedVehicleCategoryId = selectedVehicle
-    ? getVehicleCategoryId(selectedVehicle)
-    : newVehicle.category
-
   const showRegistrationForm =
     canCreateVehicle(role) &&
     !selectedVehicle &&
@@ -314,188 +283,33 @@ export default function CheckInPage() {
     !searching &&
     vehicles.length === 0
 
-  const getBranchPrice = (serviceId) =>
-    branchPrices.find(
-      (item) =>
-        Number(item.service) === Number(serviceId) &&
-        item.is_active
-    )
-
-  const getServicePriceInfo = (service) => {
-    const branchPrice = getBranchPrice(service.id)
-
-    if (!branchPrice) {
-      return {
-        available: false,
-        amount: null,
-        reason: '',
-        message: 'No active price configured for this branch.',
-      }
-    }
-
-    if (service.pricing_mode === 'FIXED') {
-      if (branchPrice.price === null || branchPrice.price === undefined) {
-        return {
-          available: false,
-          amount: null,
-          reason: '',
-          message: 'The fixed branch price is not configured.',
-        }
-      }
-
-      return {
-        available: true,
-        amount: Number(branchPrice.price),
-        reason: branchPrice.zero_price_reason || '',
-        message: '',
-      }
-    }
-
-    if (service.pricing_mode === 'VEHICLE_CATEGORY') {
-      if (!selectedVehicleCategoryId) {
-        return {
-          available: false,
-          amount: null,
-          reason: '',
-          message: 'Select a vehicle category to determine this price.',
-        }
-      }
-
-      const categoryPrice = categoryPrices.find(
-        (item) =>
-          Number(item.branch_service_price) === Number(branchPrice.id) &&
-          Number(item.vehicle_category) ===
-            Number(selectedVehicleCategoryId) &&
-          item.is_active
-      )
-
-      if (!categoryPrice) {
-        return {
-          available: false,
-          amount: null,
-          reason: '',
-          message: 'No active price is configured for this vehicle category.',
-        }
-      }
-
-      return {
-        available: true,
-        amount: Number(categoryPrice.price),
-        reason: categoryPrice.zero_price_reason || '',
-        message: '',
-      }
-    }
-
-    if (service.pricing_mode === 'SUPERVISOR_SET') {
-      if (role !== 'SUPERVISOR') {
-        return {
-          available: false,
-          amount: null,
-          reason: '',
-          message: 'This service is not available for your role.',
-        }
-      }
-
-      return {
-        available: true,
-        amount: null,
-        reason: '',
-        message: 'The supervisor must enter the agreed price.',
-      }
-    }
-
-    return {
-      available: false,
-      amount: null,
-      reason: '',
-      message: 'Unsupported pricing method.',
-    }
-  }
-
   const availableServices = useMemo(
     () =>
-      services.filter((service) => {
-        if (!service.is_active) return false
-
-        if (
-          service.pricing_mode === 'SUPERVISOR_SET' &&
-          role !== 'SUPERVISOR'
-        ) {
-          return false
-        }
-
-        return !selectedServices.some(
-          (item) =>
-            Number(item.service.id) === Number(service.id)
-        )
-      }),
-    [services, selectedServices, role]
+      services.filter(
+        (service) =>
+          service.is_active &&
+          !selectedServices.some(
+            (item) =>
+              Number(item.service.id) === Number(service.id)
+          )
+      ),
+    [services, selectedServices]
   )
 
-  const selectedServiceTotal = useMemo(() => {
-    let total = 0
-
-    for (const item of selectedServices) {
-      const service = item.service
-
-      if (service.pricing_mode === 'SUPERVISOR_SET') {
-        if (item.enteredPrice === '' || item.enteredPrice === null) {
-          return null
-        }
-
-        const amount = Number(item.enteredPrice)
-        if (!Number.isFinite(amount)) return null
-
-        total += amount
-        continue
-      }
-
-      const branchPrice = branchPrices.find(
-        (price) =>
-          Number(price.service) === Number(service.id) &&
-          price.is_active
-      )
-
-      if (!branchPrice) return null
-
-      if (service.pricing_mode === 'FIXED') {
-        if (branchPrice.price === null) return null
-        total += Number(branchPrice.price)
-        continue
-      }
-
-      if (service.pricing_mode === 'VEHICLE_CATEGORY') {
-        if (!selectedVehicleCategoryId) return null
-
-        const categoryPrice = categoryPrices.find(
-          (price) =>
-            Number(price.branch_service_price) ===
-              Number(branchPrice.id) &&
-            Number(price.vehicle_category) ===
-              Number(selectedVehicleCategoryId) &&
-            price.is_active
-        )
-
-        if (!categoryPrice) return null
-        total += Number(categoryPrice.price)
-        continue
-      }
-
-      return null
-    }
-
-    return total
-  }, [
-    selectedServices,
-    branchPrices,
-    categoryPrices,
-    selectedVehicleCategoryId,
-  ])
+  const selectedServiceTotal = useMemo(
+    () =>
+      selectedServices.reduce(
+        (total, item) =>
+          total + Number(item.service.price || 0),
+        0
+      ),
+    [selectedServices]
+  )
 
   const selectedAssignmentCount = useMemo(
     () =>
       selectedServices.reduce(
-        (total, item) => total + item.staffAssignments.length,
+        (total, item) => total + item.staffIds.length,
         0
       ),
     [selectedServices]
@@ -575,7 +389,9 @@ export default function CheckInPage() {
           }
         }
       } catch (loadError) {
-        if (active) setError(getErrorMessage(loadError))
+        if (active) {
+          setError(getErrorMessage(loadError))
+        }
       } finally {
         if (active) setLoading(false)
       }
@@ -587,62 +403,6 @@ export default function CheckInPage() {
       active = false
     }
   }, [role])
-
-  // ------------------------------------------------
-  // LOAD BRANCH PRICING
-  // ------------------------------------------------
-
-  useEffect(() => {
-    let active = true
-
-    if (!effectiveBranchId || !canAddServices(role)) {
-      setBranchPrices([])
-      setCategoryPrices([])
-      setLoadingPrices(false)
-
-      return () => {
-        active = false
-      }
-    }
-
-    const loadPricing = async () => {
-      setLoadingPrices(true)
-
-      try {
-        const [prices, categoryPriceResults] = await Promise.all([
-          getBranchServicePrices({
-            branch: effectiveBranchId,
-          }),
-          getBranchServiceCategoryPrices({
-            branch: effectiveBranchId,
-          }),
-        ])
-
-        if (!active) return
-
-        setBranchPrices(prices.filter((item) => item.is_active))
-        setCategoryPrices(
-          categoryPriceResults.filter((item) => item.is_active)
-        )
-      } catch (loadError) {
-        if (active) {
-          setBranchPrices([])
-          setCategoryPrices([])
-          setError(
-            `Unable to load branch service prices: ${getErrorMessage(loadError)}`
-          )
-        }
-      } finally {
-        if (active) setLoadingPrices(false)
-      }
-    }
-
-    loadPricing()
-
-    return () => {
-      active = false
-    }
-  }, [role, effectiveBranchId])
 
   // ------------------------------------------------
   // LOAD STAFF FOR THE SERVICING BRANCH
@@ -809,6 +569,7 @@ export default function CheckInPage() {
     setError('')
     setSuccess('')
 
+    // Keep visit details and selected services intact.
     setNewVehicle((current) => ({
       ...current,
       registration_number: registration,
@@ -824,7 +585,9 @@ export default function CheckInPage() {
     }
 
     setSelectedVehicle(vehicle)
-    setSearch(normalizeRegistration(vehicle.registration_number))
+    setSearch(
+      normalizeRegistration(vehicle.registration_number)
+    )
     setVehicles([])
     setError('')
     setSuccess('')
@@ -837,6 +600,8 @@ export default function CheckInPage() {
     setNewVehicle(emptyVehicle)
     setError('')
     setSuccess('')
+
+    // Services, mat counts and visit comments remain unchanged.
   }
 
   // ------------------------------------------------
@@ -911,7 +676,8 @@ export default function CheckInPage() {
     }
 
     const service = services.find(
-      (item) => Number(item.id) === Number(selectedServiceId)
+      (item) =>
+        Number(item.id) === Number(selectedServiceId)
     )
 
     if (!service || !service.is_active) {
@@ -920,26 +686,12 @@ export default function CheckInPage() {
     }
 
     if (
-      service.pricing_mode === 'SUPERVISOR_SET' &&
-      role !== 'SUPERVISOR'
-    ) {
-      setError('Only a SUPERVISOR can add this service.')
-      return
-    }
-
-    if (
       selectedServices.some(
-        (item) => Number(item.service.id) === Number(service.id)
+        (item) =>
+          Number(item.service.id) === Number(service.id)
       )
     ) {
       setError('This service has already been added.')
-      return
-    }
-
-    const priceInfo = getServicePriceInfo(service)
-
-    if (!priceInfo.available) {
-      setError(priceInfo.message)
       return
     }
 
@@ -947,9 +699,7 @@ export default function CheckInPage() {
       ...current,
       {
         service,
-        staffAssignments: [],
-        enteredPrice: '',
-        zeroPriceReason: '',
+        staffIds: [],
       },
     ])
 
@@ -959,7 +709,8 @@ export default function CheckInPage() {
   const handleRemoveService = (serviceId) => {
     setSelectedServices((current) =>
       current.filter(
-        (item) => Number(item.service.id) !== Number(serviceId)
+        (item) =>
+          Number(item.service.id) !== Number(serviceId)
       )
     )
   }
@@ -967,73 +718,24 @@ export default function CheckInPage() {
   const handleToggleStaff = (serviceId, staffId) => {
     setSelectedServices((current) =>
       current.map((item) => {
-        if (Number(item.service.id) !== Number(serviceId)) {
+        if (
+          Number(item.service.id) !== Number(serviceId)
+        ) {
           return item
         }
 
         const id = Number(staffId)
-        const existing = item.staffAssignments.some(
-          (assignment) => Number(assignment.staffId) === id
-        )
+        const alreadySelected = item.staffIds.includes(id)
 
         return {
           ...item,
-          staffAssignments: existing
-            ? item.staffAssignments.filter(
-                (assignment) => Number(assignment.staffId) !== id
+          staffIds: alreadySelected
+            ? item.staffIds.filter(
+                (selectedId) => selectedId !== id
               )
-            : [
-                ...item.staffAssignments,
-                {
-                  staffId: id,
-                  shift: '',
-                },
-              ],
+            : [...item.staffIds, id],
         }
       })
-    )
-  }
-
-  const handleAssignmentShiftChange = (
-    serviceId,
-    staffId,
-    shift,
-  ) => {
-    setSelectedServices((current) =>
-      current.map((item) => {
-        if (Number(item.service.id) !== Number(serviceId)) {
-          return item
-        }
-
-        return {
-          ...item,
-          staffAssignments: item.staffAssignments.map((assignment) =>
-            Number(assignment.staffId) === Number(staffId)
-              ? { ...assignment, shift }
-              : assignment
-          ),
-        }
-      })
-    )
-  }
-
-  const handleSupervisorPriceChange = (serviceId, value) => {
-    setSelectedServices((current) =>
-      current.map((item) =>
-        Number(item.service.id) === Number(serviceId)
-          ? { ...item, enteredPrice: value }
-          : item
-      )
-    )
-  }
-
-  const handleZeroPriceReasonChange = (serviceId, value) => {
-    setSelectedServices((current) =>
-      current.map((item) =>
-        Number(item.service.id) === Number(serviceId)
-          ? { ...item, zeroPriceReason: value }
-          : item
-      )
     )
   }
 
@@ -1048,6 +750,8 @@ export default function CheckInPage() {
 
     setError('')
     setSuccess('')
+
+    // Do not show the completion screen until the API succeeds.
     setCheckInCompleted(false)
 
     if (!canCreateVisit(role)) {
@@ -1126,61 +830,6 @@ export default function CheckInPage() {
       return
     }
 
-    if (canAddServices(role) && loadingPrices) {
-      setError('Wait for branch pricing to finish loading.')
-      return
-    }
-
-    // Validate configured prices and supervisor-entered prices.
-    for (const item of selectedServices) {
-      const service = item.service
-
-      if (service.pricing_mode === 'SUPERVISOR_SET') {
-        if (role !== 'SUPERVISOR') {
-          setError(
-            `Only a SUPERVISOR can add ${service.name} and enter its price.`
-          )
-          return
-        }
-
-        if (
-          item.enteredPrice === '' ||
-          !Number.isFinite(Number(item.enteredPrice)) ||
-          Number(item.enteredPrice) < 0
-        ) {
-          setError(`Enter a valid agreed price for ${service.name}.`)
-          return
-        }
-
-        if (
-          Number(item.enteredPrice) === 0 &&
-          !item.zeroPriceReason.trim()
-        ) {
-          setError(
-            `Enter a reason or promotion for the zero-priced ${service.name}.`
-          )
-          return
-        }
-      } else {
-        const priceInfo = getServicePriceInfo(service)
-
-        if (!priceInfo.available) {
-          setError(`${service.name}: ${priceInfo.message}`)
-          return
-        }
-
-        if (
-          priceInfo.amount === 0 &&
-          !priceInfo.reason.trim()
-        ) {
-          setError(
-            `A reason or promotion must be configured for zero-priced ${service.name}.`
-          )
-          return
-        }
-      }
-    }
-
     if (canAssignEmployees(role)) {
       if (loadingStaff) {
         setError(
@@ -1190,12 +839,12 @@ export default function CheckInPage() {
       }
 
       const unassignedServices = selectedServices.filter(
-        (item) => item.staffAssignments.length === 0
+        (item) => item.staffIds.length === 0
       )
 
       if (unassignedServices.length > 0) {
         setError(
-          `Assign at least one eligible employee to each service: ${unassignedServices
+          `Assign at least one eligible employee to each service. Awaiting assignment: ${unassignedServices
             .map((item) => item.service.name)
             .join(', ')}.`
         )
@@ -1203,27 +852,16 @@ export default function CheckInPage() {
       }
 
       for (const item of selectedServices) {
-        const missingShift = item.staffAssignments.some(
-          (assignment) =>
-            !['DAY', 'NIGHT'].includes(assignment.shift)
+        const expectedRole = getEligibleRole(
+          item.service.category
         )
-
-        if (missingShift) {
-          setError(
-            `Choose DAY or NIGHT shift for every assigned employee on ${item.service.name}.`
-          )
-          return
-        }
-
-        const expectedRole = getEligibleRole(item.service.category)
 
         const eligibleIds = branchStaff
           .filter((staff) => staff.role === expectedRole)
           .map((staff) => Number(staff.id))
 
-        const invalidStaff = item.staffAssignments.some(
-          (assignment) =>
-            !eligibleIds.includes(Number(assignment.staffId))
+        const invalidStaff = item.staffIds.some(
+          (id) => !eligibleIds.includes(Number(id))
         )
 
         if (invalidStaff) {
@@ -1235,32 +873,15 @@ export default function CheckInPage() {
       }
     }
 
+    // Preserve the existing backend payload structure.
     const payload = {
       plastic_mat_count: plasticCount,
       woolen_mat_count: woolenCount,
       comment: comment.trim(),
-      services: selectedServices.map((item) => {
-        const servicePayload = {
-          service_id: Number(item.service.id),
-          staff_assignments: item.staffAssignments.map(
-            (assignment) => ({
-              staff_id: Number(assignment.staffId),
-              shift: assignment.shift,
-            })
-          ),
-        }
-
-        if (item.service.pricing_mode === 'SUPERVISOR_SET') {
-          servicePayload.price = Number(item.enteredPrice)
-
-          if (Number(item.enteredPrice) === 0) {
-            servicePayload.zero_price_reason =
-              item.zeroPriceReason.trim()
-          }
-        }
-
-        return servicePayload
-      }),
+      services: selectedServices.map((item) => ({
+        service_id: Number(item.service.id),
+        staff_ids: item.staffIds.map(Number),
+      })),
     }
 
     if (usingExistingVehicle) {
@@ -1302,6 +923,7 @@ export default function CheckInPage() {
     try {
       const result = await createVehicleIntakeWorkflow(payload)
 
+      // Only display the completion screen after successful saving.
       setCheckInCompleted(true)
 
       const vehicleRegistration =
@@ -1328,6 +950,7 @@ export default function CheckInPage() {
         `${vehicleAction} successfully. Visit #${visitNumber} created for ${vehicleRegistration}. ${serviceCount} service(s) and ${assignmentCount} employee assignment(s) saved successfully.`
       )
 
+      // Reset only after the backend confirms success.
       setSelectedVehicle(null)
       setVehicles([])
       setSearch('')
@@ -1390,6 +1013,8 @@ export default function CheckInPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-8">
+      {/* PAGE HEADER */}
+
       <header className="flex flex-wrap items-center gap-3">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
           <CarFront size={25} />
@@ -1414,6 +1039,7 @@ export default function CheckInPage() {
           className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-800"
         >
           <AlertCircle size={19} className="mt-0.5 shrink-0" />
+
           <p className="min-w-0 flex-1">{error}</p>
 
           <button
@@ -1433,6 +1059,7 @@ export default function CheckInPage() {
           className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-3.5 text-sm text-green-800"
         >
           <CheckCircle2 size={19} className="mt-0.5 shrink-0" />
+
           <p className="min-w-0 flex-1">{success}</p>
 
           <button
@@ -1446,9 +1073,13 @@ export default function CheckInPage() {
         </div>
       )}
 
+      {/* CHECK-IN FORM */}
+
       {!checkInCompleted && (
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* VEHICLE */}
+          {/* ==========================================
+              VEHICLE
+          ========================================== */}
 
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <SectionHeading
@@ -1499,6 +1130,8 @@ export default function CheckInPage() {
                 </p>
               )}
 
+            {/* SEARCH RESULTS */}
+
             {!selectedVehicle &&
               !searching &&
               vehicles.length > 0 && (
@@ -1543,6 +1176,8 @@ export default function CheckInPage() {
                 </div>
               )}
 
+            {/* SELECTED VEHICLE */}
+
             {selectedVehicle && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-3.5">
                 <div className="flex min-w-0 items-start gap-2.5">
@@ -1585,7 +1220,7 @@ export default function CheckInPage() {
               </div>
             )}
 
-            {/* NEW VEHICLE */}
+            {/* NEW VEHICLE FORM */}
 
             {showRegistrationForm && (
               <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/40 p-3.5 sm:p-4">
@@ -1653,7 +1288,10 @@ export default function CheckInPage() {
                       required
                       value={newVehicle.category}
                       onChange={(event) =>
-                        updateNewVehicle('category', event.target.value)
+                        updateNewVehicle(
+                          'category',
+                          event.target.value
+                        )
                       }
                       className={inputClass}
                     >
@@ -1744,6 +1382,8 @@ export default function CheckInPage() {
                     </div>
                   )}
                 </div>
+
+                {/* CATEGORY CREATION */}
 
                 {showCategoryForm && canCreateCategory(role) && (
                   <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3">
@@ -1864,14 +1504,16 @@ export default function CheckInPage() {
               )}
           </section>
 
-          {/* SERVICES AND ASSIGNMENTS */}
+          {/* ==========================================
+              SERVICES AND ASSIGNMENTS
+          ========================================== */}
 
           {canAddServices(role) && (
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <SectionHeading
                 icon={Users}
                 title="3. Services and employees"
-                description="Add services using the selected branch's configured prices."
+                description="Add the required services and assign employees to each one."
                 trailing={
                   <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
                     {selectedServices.length} selected
@@ -1879,413 +1521,265 @@ export default function CheckInPage() {
                 }
               />
 
-              {!effectiveBranchId ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  Select the servicing branch before adding services.
-                </p>
-              ) : loadingPrices ? (
-                <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-                  <Loader2 size={17} className="animate-spin" />
-                  Loading branch service prices...
-                </div>
-              ) : (
-                <>
-                  <div className="rounded-lg bg-slate-50 p-3">
-                    <Field label="Choose a service">
-                      {services.length === 0 ? (
-                        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                          No active services are available in the catalogue.
-                        </p>
-                      ) : availableServices.length === 0 ? (
-                        <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-                          All services available to your role have been added.
-                        </p>
-                      ) : (
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <select
-                            value={selectedServiceId}
-                            onChange={(event) =>
-                              setSelectedServiceId(event.target.value)
-                            }
-                            className={inputClass}
-                          >
-                            <option value="">Select a service</option>
+              {/* ADD SERVICE */}
 
-                            {availableServices.map((service) => {
-                              const info = getServicePriceInfo(service)
-
-                              let priceLabel = info.available
-                                ? info.amount === null
-                                  ? 'Supervisor enters price'
-                                  : formatKES(info.amount)
-                                : info.message
-
-                              return (
-                                <option
-                                  key={service.id}
-                                  value={service.id}
-                                  disabled={!info.available}
-                                >
-                                  {service.name} · {getCategoryLabel(service.category)} · {priceLabel}
-                                </option>
-                              )
-                            })}
-                          </select>
-
-                          <button
-                            type="button"
-                            onClick={handleAddService}
-                            disabled={!selectedServiceId}
-                            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Plus size={17} />
-                            Add service
-                          </button>
-                        </div>
-                      )}
-                    </Field>
-
-                    {selectedVehicleCategoryId && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Vehicle category selected: {
-                          selectedVehicle?.category_name ||
-                          categories.find(
-                            (category) =>
-                              Number(category.id) ===
-                              Number(selectedVehicleCategoryId)
-                          )?.name ||
-                          'Selected category'
+              <div className="rounded-lg bg-slate-50 p-3">
+                <Field label="Choose a service">
+                  {services.length === 0 ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      No active services are available in the catalogue.
+                    </p>
+                  ) : availableServices.length === 0 ? (
+                    <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                      All active services have been added.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={selectedServiceId}
+                        onChange={(event) =>
+                          setSelectedServiceId(event.target.value)
                         }
-                      </p>
-                    )}
-                  </div>
+                        className={inputClass}
+                      >
+                        <option value="">Select a service</option>
 
-                  {/* SELECTED SERVICES */}
+                        {availableServices.map((service) => (
+                          <option
+                            key={service.id}
+                            value={service.id}
+                          >
+                            {service.name} — {getCategoryLabel(service.category)} — {formatKES(service.price)}
+                          </option>
+                        ))}
+                      </select>
 
-                  <div className="mt-4">
-                    {selectedServices.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center">
-                        <ClipboardList
-                          size={25}
-                          className="mx-auto text-slate-400"
-                        />
-
-                        <p className="mt-2 text-sm font-medium text-slate-700">
-                          No services added yet
-                        </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Choose a service above to add it to this visit.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {selectedServices.map((item) => {
-                          const service = item.service
-                          const expectedRole = getEligibleRole(
-                            service.category
-                          )
-
-                          const eligibleStaff = branchStaff.filter(
-                            (staff) => staff.role === expectedRole
-                          )
-
-                          const priceInfo = getServicePriceInfo(service)
-
-                          const displayedPrice =
-                            service.pricing_mode === 'SUPERVISOR_SET'
-                              ? item.enteredPrice === ''
-                                ? 'Enter agreed price'
-                                : formatKES(item.enteredPrice)
-                              : priceInfo.available
-                                ? formatKES(priceInfo.amount)
-                                : 'Price unavailable'
-
-                          return (
-                            <article
-                              key={service.id}
-                              className="overflow-hidden rounded-lg border border-slate-200"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3">
-                                <div className="flex min-w-0 items-start gap-2.5">
-                                  <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
-                                    <Check size={17} />
-                                  </div>
-
-                                  <div className="min-w-0">
-                                    <p className="font-semibold text-slate-900">
-                                      {service.name}
-                                    </p>
-
-                                    <p className="mt-0.5 text-xs text-slate-500">
-                                      {getCategoryLabel(service.category)}
-                                      {service.code ? ` · ${service.code}` : ''}
-                                      {service.duration_minutes
-                                        ? ` · ${service.duration_minutes} minutes`
-                                        : ''}
-                                    </p>
-
-                                    <p className="mt-1 text-xs text-slate-500">
-                                      Pricing: {
-                                        service.pricing_mode === 'FIXED'
-                                          ? 'Branch fixed price'
-                                          : service.pricing_mode === 'VEHICLE_CATEGORY'
-                                            ? 'Vehicle category price'
-                                            : 'Supervisor-entered price'
-                                      }
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-3">
-                                  <span className="text-sm font-semibold text-slate-900">
-                                    {displayedPrice}
-                                  </span>
-
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleRemoveService(service.id)
-                                    }
-                                    title="Remove service"
-                                    aria-label={`Remove ${service.name}`}
-                                    className="rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* SUPERVISOR-SET PRICE */}
-
-                              {service.pricing_mode === 'SUPERVISOR_SET' &&
-                                role === 'SUPERVISOR' && (
-                                  <div className="border-t border-slate-200 p-3">
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                      <Field
-                                        label="Agreed TOP price (KES)"
-                                        required
-                                      >
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          step="0.01"
-                                          value={item.enteredPrice}
-                                          onChange={(event) =>
-                                            handleSupervisorPriceChange(
-                                              service.id,
-                                              event.target.value
-                                            )
-                                          }
-                                          placeholder="Enter agreed amount"
-                                          className={inputClass}
-                                        />
-                                      </Field>
-
-                                      {Number(item.enteredPrice) === 0 &&
-                                        item.enteredPrice !== '' && (
-                                          <Field
-                                            label="Reason or promotion"
-                                            required
-                                          >
-                                            <input
-                                              value={item.zeroPriceReason}
-                                              onChange={(event) =>
-                                                handleZeroPriceReasonChange(
-                                                  service.id,
-                                                  event.target.value
-                                                )
-                                              }
-                                              placeholder="Explain why this service is free"
-                                              className={inputClass}
-                                            />
-                                          </Field>
-                                        )}
-                                    </div>
-
-                                    <p className="mt-2 text-xs text-slate-500">
-                                      This price is entered by the supervisor for this visit.
-                                    </p>
-                                  </div>
-                                )}
-
-                              {/* CONFIGURED ZERO-PRICE REASON */}
-
-                              {service.pricing_mode !== 'SUPERVISOR_SET' &&
-                                priceInfo.available &&
-                                priceInfo.amount === 0 && (
-                                  <div className="border-t border-slate-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                    Zero-price reason: {priceInfo.reason}
-                                  </div>
-                                )}
-
-                              {/* EMPLOYEE ASSIGNMENT */}
-
-                              {canAssignEmployees(role) && (
-                                <div className="p-3">
-                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                      <p className="text-sm font-semibold text-slate-800">
-                                        Assign employees
-                                      </p>
-
-                                      <p className="mt-0.5 text-xs text-slate-500">
-                                        Select each employee and choose the shift for this assignment.
-                                      </p>
-                                    </div>
-
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                                      <Users size={13} />
-                                      {item.staffAssignments.length} selected
-                                    </span>
-                                  </div>
-
-                                  {!effectiveBranchId ? (
-                                    <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                                      Select the servicing branch first.
-                                    </p>
-                                  ) : loadingStaff ? (
-                                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                                      <Loader2
-                                        size={16}
-                                        className="animate-spin"
-                                      />
-                                      Loading employees...
-                                    </div>
-                                  ) : !expectedRole ? (
-                                    <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                                      The service category does not identify an eligible employee role.
-                                    </p>
-                                  ) : eligibleStaff.length === 0 ? (
-                                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                                      No active {expectedRole === 'CLEANER' ? 'cleaners' : 'detailers'} were found for this branch.
-                                    </p>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      {eligibleStaff.map((staff) => {
-                                        const assignment =
-                                          item.staffAssignments.find(
-                                            (entry) =>
-                                              Number(entry.staffId) ===
-                                              Number(staff.id)
-                                          )
-
-                                        const checked = Boolean(assignment)
-
-                                        return (
-                                          <div
-                                            key={staff.id}
-                                            className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 transition ${
-                                              checked
-                                                ? 'border-blue-300 bg-blue-50'
-                                                : 'border-slate-200 bg-white'
-                                            }`}
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={checked}
-                                              onChange={() =>
-                                                handleToggleStaff(
-                                                  service.id,
-                                                  staff.id
-                                                )
-                                              }
-                                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                                            />
-
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate text-sm font-medium text-slate-800">
-                                                {getStaffName(staff)}
-                                              </span>
-
-                                              <span className="mt-0.5 block text-xs text-slate-500">
-                                                {staff.staff_number || 'No staff number'}
-                                                {staff.current_shift
-                                                  ? ` · Current shift: ${staff.current_shift}`
-                                                  : ''}
-                                              </span>
-                                            </span>
-
-                                            {checked && (
-                                              <div className="w-full sm:w-36">
-                                                <select
-                                                  value={assignment.shift}
-                                                  onChange={(event) =>
-                                                    handleAssignmentShiftChange(
-                                                      service.id,
-                                                      staff.id,
-                                                      event.target.value
-                                                    )
-                                                  }
-                                                  className={inputClass}
-                                                  aria-label={`Shift for ${getStaffName(staff)}`}
-                                                >
-                                                  <option value="">
-                                                    Select shift
-                                                  </option>
-                                                  <option value="DAY">
-                                                    DAY
-                                                  </option>
-                                                  <option value="NIGHT">
-                                                    NIGHT
-                                                  </option>
-                                                </select>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {!canAssignEmployees(role) && (
-                                <div className="p-3">
-                                  <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-                                    An ADMIN or SUPERVISOR will assign employees to this service.
-                                  </p>
-                                </div>
-                              )}
-                            </article>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* SERVICE TOTAL */}
-
-                  {selectedServices.length > 0 && (
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div>
-                        <p className="text-xs text-slate-500">
-                          Configured service total
-                        </p>
-
-                        <p className="mt-0.5 text-lg font-bold text-slate-900">
-                          {selectedServiceTotal === null
-                            ? 'Pending price'
-                            : formatKES(selectedServiceTotal)}
-                        </p>
-
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          Based on the selected branch, vehicle category and any supervisor-entered prices.
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-xs text-slate-500">
-                          Employee assignments
-                        </p>
-
-                        <p className="mt-0.5 text-lg font-bold text-slate-900">
-                          {selectedAssignmentCount}
-                        </p>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddService}
+                        disabled={!selectedServiceId}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Plus size={17} />
+                        Add service
+                      </button>
                     </div>
                   )}
-                </>
+                </Field>
+              </div>
+
+              {/* SELECTED SERVICES */}
+
+              <div className="mt-4">
+                {selectedServices.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center">
+                    <ClipboardList
+                      size={25}
+                      className="mx-auto text-slate-400"
+                    />
+
+                    <p className="mt-2 text-sm font-medium text-slate-700">
+                      No services added yet
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choose a service above to add it to this visit.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedServices.map((item) => {
+                      const service = item.service
+                      const expectedRole = getEligibleRole(
+                        service.category
+                      )
+
+                      const eligibleStaff = branchStaff.filter(
+                        (staff) => staff.role === expectedRole
+                      )
+
+                      return (
+                        <article
+                          key={service.id}
+                          className="overflow-hidden rounded-lg border border-slate-200"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                              <div className="rounded-lg bg-blue-100 p-2 text-blue-700">
+                                <Check size={17} />
+                              </div>
+
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900">
+                                  {service.name}
+                                </p>
+
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  {getCategoryLabel(service.category)}
+                                  {service.code
+                                    ? ` · ${service.code}`
+                                    : ''}
+                                  {service.duration_minutes
+                                    ? ` · ${service.duration_minutes} minutes`
+                                    : ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {formatKES(service.price)}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRemoveService(service.id)
+                                }
+                                title="Remove service"
+                                aria-label={`Remove ${service.name}`}
+                                className="rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* EMPLOYEE ASSIGNMENT */}
+
+                          {canAssignEmployees(role) && (
+                            <div className="p-3">
+                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-800">
+                                    Assign employees
+                                  </p>
+
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    {expectedRole === 'CLEANER'
+                                      ? 'Select the cleaner or cleaners responsible for this service.'
+                                      : expectedRole === 'DETAILER'
+                                        ? 'Select the detailer or detailers responsible for this service.'
+                                        : 'This service has no recognized employee category.'}
+                                  </p>
+                                </div>
+
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  <Users size={13} />
+                                  {item.staffIds.length} selected
+                                </span>
+                              </div>
+
+                              {!effectiveBranchId ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                                  Select the servicing branch first.
+                                </p>
+                              ) : loadingStaff ? (
+                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                  <Loader2
+                                    size={16}
+                                    className="animate-spin"
+                                  />
+                                  Loading employees...
+                                </div>
+                              ) : !expectedRole ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                                  The service category does not identify an eligible employee role. Check the service catalogue.
+                                </p>
+                              ) : eligibleStaff.length === 0 ? (
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                  No active {expectedRole === 'CLEANER' ? 'cleaners' : 'detailers'} were found for this branch.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  {eligibleStaff.map((staff) => {
+                                    const checked = item.staffIds.includes(
+                                      Number(staff.id)
+                                    )
+
+                                    return (
+                                      <label
+                                        key={staff.id}
+                                        className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition ${
+                                          checked
+                                            ? 'border-blue-300 bg-blue-50'
+                                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() =>
+                                            handleToggleStaff(
+                                              service.id,
+                                              staff.id
+                                            )
+                                          }
+                                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                                        />
+
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-sm font-medium text-slate-800">
+                                            {getStaffName(staff)}
+                                          </span>
+
+                                          <span className="mt-0.5 block text-xs text-slate-500">
+                                            {staff.staff_number || 'No staff number'}
+                                            {staff.current_shift
+                                              ? ` · ${staff.current_shift} shift`
+                                              : ''}
+                                          </span>
+                                        </span>
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {!canAssignEmployees(role) && (
+                            <div className="p-3">
+                              <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                                An ADMIN or SUPERVISOR will assign employees to this service.
+                              </p>
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* SERVICE TOTAL */}
+
+              {selectedServices.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Catalogue price total
+                    </p>
+
+                    <p className="mt-0.5 text-lg font-bold text-slate-900">
+                      {formatKES(selectedServiceTotal)}
+                    </p>
+
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Indicative only. Final billing and discounts are handled separately.
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">
+                      Employee assignments
+                    </p>
+
+                    <p className="mt-0.5 text-lg font-bold text-slate-900">
+                      {selectedAssignmentCount}
+                    </p>
+                  </div>
+                </div>
               )}
             </section>
           )}
@@ -2298,57 +1792,9 @@ export default function CheckInPage() {
             </div>
           )}
 
-          {/* VISIT DETAILS */}
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <SectionHeading
-              icon={ClipboardList}
-              title="2. Visit details"
-              description="Record the mats received and any instructions for this visit."
-            />
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Plastic mats received">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={plasticMatCount}
-                  onChange={(event) =>
-                    setPlasticMatCount(event.target.value)
-                  }
-                  className={inputClass}
-                />
-              </Field>
-
-              <Field label="Woolen mats received">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={woolenMatCount}
-                  onChange={(event) =>
-                    setWoolenMatCount(event.target.value)
-                  }
-                  className={inputClass}
-                />
-              </Field>
-
-              <div className="sm:col-span-2">
-                <Field label="Visit comments (optional)">
-                  <textarea
-                    rows={3}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                    placeholder="Any additional instructions for this visit"
-                    className={inputClass}
-                  />
-                </Field>
-              </div>
-            </div>
-          </section>
-
-          {/* REVIEW AND SUBMIT */}
+          {/* ==========================================
+              REVIEW AND SUBMIT
+          ========================================== */}
 
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <SectionHeading
@@ -2399,8 +1845,7 @@ export default function CheckInPage() {
               type="submit"
               disabled={
                 submitting ||
-                (canAssignEmployees(role) && loadingStaff) ||
-                (canAddServices(role) && loadingPrices)
+                (canAssignEmployees(role) && loadingStaff)
               }
               className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -2412,6 +1857,7 @@ export default function CheckInPage() {
               ) : (
                 <>
                   <CheckCircle2 size={18} className="mr-2" />
+
                   {selectedVehicle
                     ? 'Submit vehicle visit'
                     : 'Register vehicle and submit visit'}

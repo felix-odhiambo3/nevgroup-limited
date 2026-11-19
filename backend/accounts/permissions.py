@@ -1,5 +1,5 @@
-
 from rest_framework.permissions import BasePermission
+
 
 class BaseRolePermission(BasePermission):
 
@@ -16,39 +16,38 @@ class BaseRolePermission(BasePermission):
             or user.role in self.allowed_roles
         )
 
+
 class IsAdmin(BaseRolePermission):
     allowed_roles = ['ADMIN']
+
 
 class IsOwner(BaseRolePermission):
     allowed_roles = ['OWNER']
 
+
 class IsSupervisor(BaseRolePermission):
     allowed_roles = ['SUPERVISOR']
+
 
 class IsAccounts(BaseRolePermission):
     allowed_roles = ['ACCOUNTS']
 
+
 class IsCleaner(BaseRolePermission):
     allowed_roles = ['CLEANER']
+
 
 class IsDetailer(BaseRolePermission):
     allowed_roles = ['DETAILER']
 
+
 class IsOwnerOrSupervisor(BaseRolePermission):
     allowed_roles = ['OWNER', 'SUPERVISOR']
+
 
 class IsOwnerOrAccounts(BaseRolePermission):
     allowed_roles = ['OWNER', 'ACCOUNTS']
 
+
 class IsAdminOrOwner(BaseRolePermission):
     allowed_roles = ['ADMIN', 'OWNER']
-
-class IsStaffManager(BaseRolePermission):
-    """
-    Allows ADMIN, OWNER and SUPERVISOR to access
-    staff-management endpoints.
-
-    Individual staff-management views must still
-    enforce which staff roles each user can manage.
-    """
-    allowed_roles = ['ADMIN', 'OWNER', 'SUPERVISOR']

@@ -1,10 +1,7 @@
-from datetime import datetime, time, timedelta
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.utils.dateparse import parse_date
 
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -13,7 +10,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
-from branches.models import Branch
 from payments.models import (
     Invoice,
     PaymentCollection,
@@ -54,6 +50,7 @@ def get_supervisor_branch(user):
     Supervisors can only access payment records belonging to
     their own active branch.
     """
+
     profile = (
         StaffProfile.objects
         .select_related('branch', 'user')
@@ -65,7 +62,6 @@ def get_supervisor_branch(user):
         not profile
         or profile.employment_status != 'ACTIVE'
         or profile.is_archived
-        or not profile.branch
         or not profile.branch.is_active
         or not user.is_active
     ):
@@ -78,6 +74,7 @@ def get_supervisor_branch(user):
 
 def ensure_payment_view_access(user):
     """Allow approved payment-viewing roles."""
+
     if user.is_superuser:
         return
 
@@ -89,6 +86,7 @@ def ensure_payment_view_access(user):
 
 def ensure_reversal_access(user):
     """Only OWNER, ADMIN and ACCOUNTS can reverse payments."""
+
     if user.is_superuser:
         return
 
@@ -99,7 +97,10 @@ def ensure_reversal_access(user):
 
 
 def get_accessible_invoice_queryset(user):
-    """Return invoices the authenticated user is allowed to access."""
+    """
+    Return invoices the authenticated user is allowed to access.
+    """
+
     queryset = Invoice.objects.select_related(
         'branch',
         'customer',
@@ -123,7 +124,10 @@ def get_accessible_invoice_queryset(user):
 
 
 def get_accessible_collection_queryset(user):
-    """Return payment collections the authenticated user can view."""
+    """
+    Return payment collections the authenticated user can view.
+    """
+
     queryset = PaymentCollection.objects.select_related(
         'invoice',
         'invoice__branch',
@@ -147,7 +151,10 @@ def get_accessible_collection_queryset(user):
 
 
 def convert_workflow_validation_error(exc):
-    """Convert Django validation errors into DRF validation errors."""
+    """
+    Convert Django validation errors into DRF validation errors.
+    """
+
     if hasattr(exc, 'message_dict'):
         detail = exc.message_dict
     elif hasattr(exc, 'messages'):
@@ -158,61 +165,13 @@ def convert_workflow_validation_error(exc):
     raise ValidationError(detail)
 
 
-def get_operational_window(work_date):
-    """
-    Operational day: 7:00 AM on work_date to 7:00 AM
-    on the following calendar day, in the active Django timezone.
-    """
-    current_tz = timezone.get_current_timezone()
-
-    start = timezone.make_aware(
-        datetime.combine(work_date, time(7, 0)),
-        current_tz,
-    )
-
-    end = start + timedelta(days=1)
-
-    return start, end
-
-
-def get_default_operational_date():
-    """Use the 7:00 AM operational-day cutoff."""
-    local_now = timezone.localtime()
-    current_date = local_now.date()
-
-    if local_now.time().replace(tzinfo=None) < time(7, 0):
-        return current_date - timedelta(days=1)
-
-    return current_date
-
-
-def get_revenue_report_date(request):
-    raw_date = request.query_params.get('work_date')
-
-    if not raw_date:
-        return get_default_operational_date()
-
-    work_date = parse_date(raw_date)
-
-    if work_date is None:
-        raise ValidationError({
-            'work_date': 'Use the YYYY-MM-DD date format.'
-        })
-
-    return work_date
-
-
-def money_string(value):
-    """Return a two-decimal monetary value as a JSON-safe string."""
-    return f'{value or 0:.2f}'
-
-
 class InvoiceListView(APIView):
     """
     GET /api/payments/invoices/
 
     List invoices accessible to the authenticated user.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -252,6 +211,7 @@ class InvoiceDetailView(APIView):
 
     Retrieve one accessible invoice.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, invoice_id):
@@ -276,6 +236,7 @@ class PaymentCollectionListView(APIView):
 
     List payment collections and receipts accessible to the user.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -311,6 +272,7 @@ class PaymentCollectionDetailView(APIView):
 
     Retrieve one receipt with its payment entries and invoice details.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, collection_id):
@@ -335,6 +297,7 @@ class InvoicePaymentCollectionCreateView(APIView):
 
     Record cash, M-PESA or split payment against an invoice.
     """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, invoice_id):
@@ -381,6 +344,7 @@ class PaymentReversalListView(APIView):
 
     Restricted to OWNER, ADMIN and ACCOUNTS.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -426,6 +390,7 @@ class PaymentReversalCreateView(APIView):
 
     Restricted to OWNER, ADMIN and ACCOUNTS.
     """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, payment_entry_id):
@@ -467,119 +432,3 @@ class PaymentReversalCreateView(APIView):
             output_serializer.data,
             status=status.HTTP_201_CREATED,
         )
-
-
-class SupervisorRevenueSummaryView(APIView):
-    """
-    GET /api/payments/revenue-summary/
-
-    Daily revenue summary for the authenticated supervisor's own branch.
-
-    Gross collections are based on PaymentEntry records received during
-    the operational day.
-
-    Reversals are based on PaymentReversal records processed during
-    the operational day, including reversals of older collections.
-
-    Net collections = gross collections - reversals.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        ensure_payment_view_access(request.user)
-
-        if (
-            not request.user.is_superuser
-            and request.user.role != User.Role.SUPERVISOR
-        ):
-            raise PermissionDenied(
-                'This revenue summary is available to supervisors.'
-            )
-
-        branch = get_supervisor_branch(request.user)
-        work_date = get_revenue_report_date(request)
-        start, end = get_operational_window(work_date)
-
-        payment_filters = {
-            'collection__invoice__branch': branch,
-            'collection__created_at__gte': start,
-            'collection__created_at__lt': end,
-        }
-
-        payment_totals = PaymentEntry.objects.filter(
-            **payment_filters
-        ).aggregate(
-            cash=Sum(
-                'amount',
-                filter=Q(method='CASH'),
-            ),
-            mpesa=Sum(
-                'amount',
-                filter=Q(method='MPESA'),
-            ),
-            gross=Sum('amount'),
-        )
-
-        reversal_filters = {
-            'payment_entry__collection__invoice__branch': branch,
-            'created_at__gte': start,
-            'created_at__lt': end,
-        }
-
-        reversal_totals = PaymentReversal.objects.filter(
-            **reversal_filters
-        ).aggregate(
-            cash=Sum(
-                'amount',
-                filter=Q(payment_entry__method='CASH'),
-            ),
-            mpesa=Sum(
-                'amount',
-                filter=Q(payment_entry__method='MPESA'),
-            ),
-            total=Sum('amount'),
-        )
-
-        cash_collected = payment_totals['cash'] or 0
-        mpesa_collected = payment_totals['mpesa'] or 0
-        gross_collections = payment_totals['gross'] or 0
-
-        cash_reversed = reversal_totals['cash'] or 0
-        mpesa_reversed = reversal_totals['mpesa'] or 0
-        total_reversals = reversal_totals['total'] or 0
-
-        net_cash = cash_collected - cash_reversed
-        net_mpesa = mpesa_collected - mpesa_reversed
-        net_collections = gross_collections - total_reversals
-
-        daily_target = branch.daily_revenue_target or 0
-
-        achievement = (
-            float((net_collections / daily_target) * 100)
-            if daily_target > 0
-            else None
-        )
-
-        return Response({
-            'branch_id': branch.id,
-            'branch_name': branch.name,
-            'branch_code': branch.code,
-            'work_date': work_date.isoformat(),
-            'operational_start': start.isoformat(),
-            'operational_end': end.isoformat(),
-            'cash_collected': money_string(cash_collected),
-            'mpesa_collected': money_string(mpesa_collected),
-            'gross_collections': money_string(gross_collections),
-            'cash_reversed': money_string(cash_reversed),
-            'mpesa_reversed': money_string(mpesa_reversed),
-            'total_reversals': money_string(total_reversals),
-            'net_cash': money_string(net_cash),
-            'net_mpesa': money_string(net_mpesa),
-            'net_collections': money_string(net_collections),
-            'daily_target': money_string(daily_target),
-            'target_achievement_percentage': (
-                round(achievement, 2)
-                if achievement is not None
-                else None
-            ),
-        })

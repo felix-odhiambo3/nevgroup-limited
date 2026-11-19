@@ -4,15 +4,12 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
 from branches.models import Branch
-from services.models import (
-    Service,
-    BranchServicePrice,
-    BranchServiceCategoryPrice,
-)
+from services.models import BranchServicePrice
 from staff.models import StaffProfile
 from vehicles.models import Vehicle
 
 from .models import Visit, VisitService, ServiceAssignment
+
 
 class VisitSerializer(serializers.ModelSerializer):
     vehicle_registration = serializers.CharField(
@@ -144,14 +141,11 @@ class VisitSerializer(serializers.ModelSerializer):
 
         return super().create(validated_data)
 
-class VisitServiceSerializer(serializers.ModelSerializer):
 
+
+class VisitServiceSerializer(serializers.ModelSerializer):
     service_name = serializers.CharField(read_only=True)
     service_code = serializers.CharField(read_only=True)
-
-    pricing_mode = serializers.CharField(read_only=True)
-
-    vehicle_category_name = serializers.CharField(read_only=True)
 
     original_price = serializers.DecimalField(
         max_digits=10,
@@ -159,20 +153,7 @@ class VisitServiceSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
-    # Only used when a supervisor adds a TOP service.
-    # This is not the historical price field.
-    price = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        min_value=0,
-        required=False,
-        write_only=True
-    )
-
-    zero_price_reason = serializers.CharField(
-        required=False,
-        allow_blank=True
-    )
+    zero_price_reason = serializers.CharField(read_only=True)
 
     added_by_name = serializers.CharField(
         source='added_by.get_full_name',
@@ -181,7 +162,6 @@ class VisitServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = VisitService
-
         fields = [
             'id',
             'visit',
@@ -189,9 +169,6 @@ class VisitServiceSerializer(serializers.ModelSerializer):
             'service_name',
             'service_code',
             'service_category',
-            'pricing_mode',
-            'vehicle_category_name',
-            'price',
             'original_price',
             'zero_price_reason',
             'duration_minutes',
@@ -208,9 +185,8 @@ class VisitServiceSerializer(serializers.ModelSerializer):
             'service_name',
             'service_code',
             'service_category',
-            'pricing_mode',
-            'vehicle_category_name',
             'original_price',
+            'zero_price_reason',
             'duration_minutes',
             'requires_timer',
             'added_by',
@@ -231,141 +207,26 @@ class VisitServiceSerializer(serializers.ModelSerializer):
                 "The visit context is required."
             )
 
-        branch_price = BranchServicePrice.objects.filter(
+        branch_price_exists = BranchServicePrice.objects.filter(
             branch=visit.branch,
             service=service,
             is_active=True,
-        ).first()
+        ).exists()
 
-        if branch_price is None:
+        if not branch_price_exists:
             raise serializers.ValidationError(
-                f"{service.name} has no active pricing configuration "
+                f"{service.name} has no active price configured "
                 f"for {visit.branch.name}. Ask an admin or owner "
-                f"to configure the branch pricing."
+                f"to configure the branch price."
             )
-
-        request = self.context['request']
-        user = request.user
-
-        if (
-            service.pricing_mode == Service.PricingMode.SUPERVISOR_SET
-            and user.role != 'SUPERVISOR'
-        ):
-            raise PermissionDenied(
-                "Only a supervisor can add this service and enter its price."
-            )
-
-        if service.pricing_mode == Service.PricingMode.VEHICLE_CATEGORY:
-            vehicle = visit.vehicle
-
-            if not vehicle.category_id:
-                raise serializers.ValidationError(
-                    "This vehicle has no registered category. "
-                    "Update the vehicle category before adding this service."
-                )
-
-            category_price_exists = (
-                BranchServiceCategoryPrice.objects.filter(
-                    branch_service_price=branch_price,
-                    vehicle_category_id=vehicle.category_id,
-                    is_active=True,
-                ).exists()
-            )
-
-            if not category_price_exists:
-                raise serializers.ValidationError(
-                    f"No active {service.name} price is configured "
-                    f"for vehicle category {vehicle.category.name} "
-                    f"at {visit.branch.name}."
-                )
 
         return service
-
-    def validate(self, attrs):
-        service = attrs.get('service')
-
-        if service is None:
-            return attrs
-
-        request = self.context['request']
-        pricing_mode = service.pricing_mode
-
-        supplied_price = 'price' in self.initial_data
-
-        if pricing_mode == Service.PricingMode.SUPERVISOR_SET:
-            if not supplied_price:
-                raise serializers.ValidationError({
-                    'price': (
-                        'A supervisor must enter the price '
-                        'for this service.'
-                    )
-                })
-
-            price = attrs.get('price')
-
-            if price is None:
-                raise serializers.ValidationError({
-                    'price': 'Enter a valid service price.'
-                })
-
-            reason = attrs.get('zero_price_reason', '')
-
-            if price == 0 and not str(reason).strip():
-                raise serializers.ValidationError({
-                    'zero_price_reason': (
-                        'A reason or promotion is required '
-                        'for a zero-priced service.'
-                    )
-                })
-
-            if price > 0:
-                attrs['zero_price_reason'] = ''
-
-        else:
-            if supplied_price:
-                raise serializers.ValidationError({
-                    'price': (
-                        'You cannot manually enter the price '
-                        'for this service. The system calculates it '
-                        'from the branch pricing configuration.'
-                    )
-                })
-
-            attrs.pop('price', None)
-            attrs.pop('zero_price_reason', None)
-
-        return attrs
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-
-        request = self.context.get('request')
-
-        if request:
-            user = request.user
-
-            if (
-                instance.pricing_mode
-                == Service.PricingMode.SUPERVISOR_SET
-                and user.role in ['CLEANER', 'DETAILER']
-                and not user.is_superuser
-            ):
-                data['original_price'] = None
-                data['zero_price_reason'] = ''
-
-        return data
 
     @transaction.atomic
     def create(self, validated_data):
         service = validated_data['service']
         request = self.context['request']
         visit = self.context['visit']
-
-        entered_price = validated_data.pop('price', None)
-        entered_reason = validated_data.pop(
-            'zero_price_reason',
-            ''
-        )
 
         branch_price = (
             BranchServicePrice.objects
@@ -381,87 +242,9 @@ class VisitServiceSerializer(serializers.ModelSerializer):
         if branch_price is None:
             raise serializers.ValidationError({
                 'service': (
-                    f"{service.name} has no active pricing "
-                    f"configuration for {visit.branch.name}."
+                    f"{service.name} has no active price configured "
+                    f"for {visit.branch.name}."
                 )
-            })
-
-        original_price = None
-        zero_price_reason = ''
-        vehicle_category_name = ''
-
-        if service.pricing_mode == Service.PricingMode.FIXED:
-            if branch_price.price is None:
-                raise serializers.ValidationError({
-                    'service': (
-                        'The fixed branch price has not been configured.'
-                    )
-                })
-
-            original_price = branch_price.price
-            zero_price_reason = branch_price.zero_price_reason
-
-        elif service.pricing_mode == Service.PricingMode.VEHICLE_CATEGORY:
-            vehicle = visit.vehicle
-
-            if not vehicle.category_id:
-                raise serializers.ValidationError({
-                    'service': (
-                        'This vehicle has no registered category.'
-                    )
-                })
-
-            category_price = (
-                BranchServiceCategoryPrice.objects
-                .select_for_update()
-                .filter(
-                    branch_service_price=branch_price,
-                    vehicle_category_id=vehicle.category_id,
-                    is_active=True,
-                )
-                .first()
-            )
-
-            if category_price is None:
-                raise serializers.ValidationError({
-                    'service': (
-                        f"No active price is configured for "
-                        f"{vehicle.category.name}."
-                    )
-                })
-
-            original_price = category_price.price
-            zero_price_reason = category_price.zero_price_reason
-            vehicle_category_name = vehicle.category.name
-
-        elif service.pricing_mode == Service.PricingMode.SUPERVISOR_SET:
-            if request.user.role != 'SUPERVISOR':
-                raise PermissionDenied(
-                    "Only a supervisor can enter this service price."
-                )
-
-            if entered_price is None:
-                raise serializers.ValidationError({
-                    'price': 'Enter the service price.'
-                })
-
-            original_price = entered_price
-            zero_price_reason = entered_reason
-
-            if original_price == 0 and not zero_price_reason.strip():
-                raise serializers.ValidationError({
-                    'zero_price_reason': (
-                        'A reason or promotion is required '
-                        'for a zero-priced service.'
-                    )
-                })
-
-            if original_price > 0:
-                zero_price_reason = ''
-
-        else:
-            raise serializers.ValidationError({
-                'service': 'Unsupported service pricing method.'
             })
 
         return VisitService.objects.create(
@@ -470,14 +253,13 @@ class VisitServiceSerializer(serializers.ModelSerializer):
             service_name=service.name,
             service_code=service.code,
             service_category=service.category,
-            pricing_mode=service.pricing_mode,
-            vehicle_category_name=vehicle_category_name,
-            original_price=original_price,
-            zero_price_reason=zero_price_reason,
+            original_price=branch_price.price,
+            zero_price_reason=branch_price.zero_price_reason,
             duration_minutes=service.duration_minutes,
             requires_timer=service.requires_timer,
             added_by=request.user,
         )
+
 
 class ServiceAssignmentSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(
@@ -507,13 +289,6 @@ class ServiceAssignmentSerializer(serializers.ModelSerializer):
 
     is_completed = serializers.BooleanField(read_only=True)
 
-    shift = serializers.ChoiceField(
-        choices=ServiceAssignment.Shift.choices,
-        required=True
-    )
-
-    shift_display = serializers.SerializerMethodField()
-
     staff = serializers.PrimaryKeyRelatedField(
         queryset=StaffProfile.objects.select_related('user').all()
     )
@@ -527,8 +302,6 @@ class ServiceAssignmentSerializer(serializers.ModelSerializer):
             'staff',
             'staff_name',
             'staff_number',
-            'shift',
-            'shift_display',
             'assigned_by',
             'assigned_by_name',
             'assigned_at',
@@ -558,14 +331,8 @@ class ServiceAssignmentSerializer(serializers.ModelSerializer):
             'removed_by',
             'removed_by_name',
             'removal_reason',
-            'shift_display',
         ]
 
-    def get_shift_display(self, obj):
-        if obj.shift is None:
-            return 'Not recorded'
-
-        return obj.get_shift_display()
 
 class MyDayAssignmentSerializer(serializers.ModelSerializer):
     """Safe assignment details for the assigned employee only."""
@@ -600,13 +367,6 @@ class MyDayAssignmentSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
-    shift = serializers.ChoiceField(
-        choices=ServiceAssignment.Shift.choices,
-        read_only=True
-    )
-
-    shift_display = serializers.SerializerMethodField()
-
     is_completed = serializers.BooleanField(read_only=True)
 
     can_confirm_completion = serializers.SerializerMethodField()
@@ -622,8 +382,6 @@ class MyDayAssignmentSerializer(serializers.ModelSerializer):
             'vehicle_make_model',
             'service_name',
             'service_category',
-            'shift',
-            'shift_display',
             'assigned_at',
             'is_active',
             'removed_at',
@@ -635,17 +393,12 @@ class MyDayAssignmentSerializer(serializers.ModelSerializer):
 
         read_only_fields = fields
 
-    def get_shift_display(self, obj):
-        if obj.shift is None:
-            return 'Not recorded'
-
-        return obj.get_shift_display()
-
     def get_can_confirm_completion(self, obj):
         return (
             obj.is_active
             and obj.completed_at is None
         )
+
 
 class ServiceAssignmentRemovalSerializer(serializers.Serializer):
     removal_reason = serializers.CharField(

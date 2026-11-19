@@ -15,55 +15,6 @@ from staff.models import StaffProfile
 from .models import Visit, ServiceAssignment
 from .assignment_corrections import ServiceAssignmentCorrection
 
-
-# --------------------------------------------------
-# SHIFT FILTERING
-# --------------------------------------------------
-
-SHIFT_FILTER_CHOICES = {
-    'ALL',
-    'DAY',
-    'NIGHT',
-    'NOT_RECORDED',
-}
-
-
-def get_shift_filter(request):
-    """
-    Read and validate the optional shift filter.
-
-    Supports both ?shift_filter=DAY and ?shift=DAY.
-    """
-    raw_filter = request.query_params.get(
-        'shift_filter',
-        request.query_params.get('shift', 'ALL'),
-    )
-
-    shift_filter = (raw_filter or 'ALL').strip().upper()
-
-    if shift_filter not in SHIFT_FILTER_CHOICES:
-        raise ValidationError({
-            'shift_filter': (
-                'Choose ALL, DAY, NIGHT or NOT_RECORDED.'
-            )
-        })
-
-    return shift_filter
-
-
-def apply_shift_filter(queryset, shift_filter):
-    if shift_filter == 'DAY':
-        return queryset.filter(shift='DAY')
-
-    if shift_filter == 'NIGHT':
-        return queryset.filter(shift='NIGHT')
-
-    if shift_filter == 'NOT_RECORDED':
-        return queryset.filter(shift__isnull=True)
-
-    return queryset
-
-
 # --------------------------------------------------
 # SHARED ACCESS CONTROL
 # --------------------------------------------------
@@ -92,7 +43,6 @@ def get_active_staff_profile(user):
         )
 
     return profile
-
 
 def get_monitoring_access(user):
     """
@@ -136,7 +86,6 @@ def get_monitoring_access(user):
         'You do not have permission to monitor service assignments.'
     )
 
-
 def get_monitoring_queryset(user, access):
     queryset = (
         ServiceAssignment.objects
@@ -167,7 +116,6 @@ def get_monitoring_queryset(user, access):
 
     # OWNER and superuser can see all branches.
     return queryset
-
 
 # --------------------------------------------------
 # SERIALIZERS
@@ -243,7 +191,6 @@ class MonitorAssignmentSerializer(serializers.ModelSerializer):
 
     completed_by_name = serializers.SerializerMethodField()
     removed_by_name = serializers.SerializerMethodField()
-    shift_display = serializers.SerializerMethodField()
 
     is_completed = serializers.BooleanField(read_only=True)
 
@@ -265,8 +212,6 @@ class MonitorAssignmentSerializer(serializers.ModelSerializer):
             'staff',
             'staff_name',
             'staff_number',
-            'shift',
-            'shift_display',
             'assigned_by',
             'assigned_by_name',
             'assigned_at',
@@ -282,12 +227,6 @@ class MonitorAssignmentSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = fields
-
-    def get_shift_display(self, obj):
-        if not obj.shift:
-            return 'Not recorded'
-
-        return obj.get_shift_display()
 
     def get_completed_by_name(self, obj):
         if obj.completed_by is None:
@@ -306,7 +245,6 @@ class MonitorAssignmentSerializer(serializers.ModelSerializer):
             obj.removed_by.get_full_name()
             or obj.removed_by.username
         )
-
 
 class MonitorAssignmentReassignSerializer(serializers.Serializer):
     new_staff_id = serializers.IntegerField(min_value=1)
@@ -327,7 +265,6 @@ class MonitorAssignmentReassignSerializer(serializers.Serializer):
 
         return value
 
-
 class MonitorAssignmentRemoveSerializer(serializers.Serializer):
     reason = serializers.CharField(
         required=True,
@@ -344,7 +281,6 @@ class MonitorAssignmentRemoveSerializer(serializers.Serializer):
             )
 
         return value
-
 
 class AssignmentCorrectionSerializer(serializers.Serializer):
     new_staff_id = serializers.IntegerField(min_value=1)
@@ -364,7 +300,6 @@ class AssignmentCorrectionSerializer(serializers.Serializer):
             )
 
         return value
-
 
 class AssignmentCorrectionHistorySerializer(serializers.ModelSerializer):
     previous_staff_name = serializers.SerializerMethodField()
@@ -415,7 +350,6 @@ class AssignmentCorrectionHistorySerializer(serializers.ModelSerializer):
         user = obj.corrected_by
         return user.get_full_name() or user.username
 
-
 # --------------------------------------------------
 # SUPERVISOR MONITORING BASE
 # --------------------------------------------------
@@ -461,7 +395,6 @@ class SupervisorMonitorBaseView(APIView):
             queryset,
             pk=assignment_id,
         )
-
 
 # --------------------------------------------------
 # MONITOR ASSIGNMENTS
@@ -513,9 +446,6 @@ class SupervisorMonitorAssignmentsView(APIView):
                 )
             })
 
-        shift_filter = get_shift_filter(request)
-        queryset = apply_shift_filter(queryset, shift_filter)
-
         search = request.query_params.get(
             'search',
             '',
@@ -553,14 +483,12 @@ class SupervisorMonitorAssignmentsView(APIView):
             'branch_id': access['branch_id'],
             'branch_name': access['branch_name'],
             'status_filter': assignment_filter,
-            'shift_filter': shift_filter,
             'count': assignments.count(),
             'assignments': MonitorAssignmentSerializer(
                 assignments,
                 many=True,
             ).data,
         })
-
 
 # --------------------------------------------------
 # SUPERVISOR REASSIGN
@@ -572,8 +500,6 @@ class SupervisorReassignView(SupervisorMonitorBaseView):
 
     The original record is marked as removed.
     A new assignment record is created for the replacement.
-
-    The replacement inherits the original assignment's shift.
     """
 
     @transaction.atomic
@@ -712,7 +638,6 @@ class SupervisorReassignView(SupervisorMonitorBaseView):
             visit_service=assignment.visit_service,
             staff=new_staff,
             assigned_by=request.user,
-            shift=assignment.shift,
         )
 
         return Response({
@@ -724,7 +649,6 @@ class SupervisorReassignView(SupervisorMonitorBaseView):
                 replacement,
             ).data,
         }, status=status.HTTP_200_OK)
-
 
 # --------------------------------------------------
 # SUPERVISOR COMPLETE
@@ -776,7 +700,6 @@ class SupervisorCompleteAssignmentView(SupervisorMonitorBaseView):
                 assignment,
             ).data,
         }, status=status.HTTP_200_OK)
-
 
 # --------------------------------------------------
 # SUPERVISOR REMOVE
@@ -835,7 +758,6 @@ class SupervisorRemoveAssignmentView(SupervisorMonitorBaseView):
                 assignment,
             ).data,
         }, status=status.HTTP_200_OK)
-
 
 # --------------------------------------------------
 # ADMIN / OWNER - COMPLETED ASSIGNMENT CORRECTIONS
@@ -1040,7 +962,7 @@ class AdminOwnerAssignmentCorrectionView(APIView):
         )
 
         # Update only the employee reference.
-        # Preserve assignment ID, shift and completion details.
+        # Preserve assignment ID and completion details.
         assignment.staff = new_staff
         assignment.save(update_fields=['staff'])
         assignment.refresh_from_db()
