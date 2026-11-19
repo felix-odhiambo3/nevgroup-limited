@@ -367,53 +367,52 @@ export default function StaffPage() {
     }
   }, [])
 
-  const loadBranches = useCallback(async () => {
+    const loadBranches = useCallback(async () => {
     setBranchesLoading(true)
     setBranchError('')
 
     try {
-      const activeBranches = await getBranches()
-
       if (isSupervisor) {
+        // Supervisors must retrieve only their own assigned branch.
+        // Do not call the general branches endpoint.
         const profile = await getStaffSelfProfile()
         const branchId = getProfileBranchId(profile)
 
-        if (!branchId || Number.isNaN(branchId)) {
+        if (!branchId || !Number.isFinite(branchId)) {
           throw new Error(
             'Your staff profile does not have a valid assigned branch. Contact an administrator.'
           )
         }
 
-        const assignedBranch = activeBranches.find(
-          (branch) => Number(branch.id) === branchId
-        )
+        const branchObject =
+          profile.branch && typeof profile.branch === 'object'
+            ? profile.branch
+            : null
+
+        const branchName =
+          profile.branch_name ||
+          branchObject?.name ||
+          'Your assigned branch'
+
+        const assignedBranch = {
+          id: branchId,
+          name: branchName,
+          code: branchObject?.code || '',
+          is_active: true,
+        }
 
         setSupervisorBranchId(branchId)
-
-        if (assignedBranch) {
-          setBranches([assignedBranch])
-          setSupervisorBranchName(assignedBranch.name || profile.branch_name || '')
-        } else {
-          // Keep a branch entry if the profile supplies its name but the
-          // branch list does not contain it.
-          const branchName =
-            profile.branch_name ||
-            (typeof profile.branch === 'object' ? profile.branch.name : '') ||
-            'Your assigned branch'
-
-          setBranches([{
-            id: branchId,
-            name: branchName,
-            code: '',
-          }])
-          setSupervisorBranchName(branchName)
-        }
+        setSupervisorBranchName(branchName)
+        setBranches([assignedBranch])
       } else {
+        // Owners and administrators retain access to all active branches.
+        const activeBranches = await getBranches()
         setBranches(activeBranches)
       }
     } catch (err) {
       setBranches([])
       setSupervisorBranchId(null)
+      setSupervisorBranchName('')
       setBranchError(getErrorMessage(err))
     } finally {
       setBranchesLoading(false)

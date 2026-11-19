@@ -48,6 +48,7 @@ export const ROUTE_PERMISSIONS = Object.freeze({
   '/staff': [
     ROLES.OWNER,
     ROLES.ADMIN,
+    ROLES.SUPERVISOR,
   ],
 
   '/services': [
@@ -88,9 +89,21 @@ export const ROUTE_PERMISSIONS = Object.freeze({
 })
 
 export const ACTION_PERMISSIONS = Object.freeze({
-  'staff.view': [ROLES.OWNER, ROLES.ADMIN],
-  'staff.register': [ROLES.OWNER, ROLES.ADMIN],
-  'staff.update': [ROLES.OWNER, ROLES.ADMIN],
+  'staff.view': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+  ],
+  'staff.register': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+  ],
+  'staff.update': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+    ROLES.SUPERVISOR,
+  ],
 
   'branches.view': [ROLES.OWNER, ROLES.ADMIN],
 
