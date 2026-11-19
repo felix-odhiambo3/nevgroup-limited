@@ -60,6 +60,13 @@ def is_admin_or_owner(user):
     )
 
 
+def is_supervisor_actor(user):
+    return (
+        not user.is_superuser
+        and getattr(user, 'role', None) == 'SUPERVISOR'
+    )
+
+
 def ensure_admin_target_access(request, staff):
     if (
         is_admin_actor(request.user)
@@ -76,7 +83,8 @@ def ensure_admin_target_access(request, staff):
 def supervisor_profile_for(user):
     profile = StaffProfile.objects.filter(
         user=user,
-        is_archived=False
+        is_archived=False,
+        employment_status=StaffProfile.EmploymentStatus.ACTIVE,
     ).select_related('branch').first()
 
     if profile is None:
@@ -105,7 +113,7 @@ def staff_queryset_for_user(user, include_archived=False):
             user__role='OWNER'
         )
 
-    elif getattr(user, 'role', None) == 'SUPERVISOR' and not user.is_superuser:
+    elif is_supervisor_actor(user):
         supervisor = supervisor_profile_for(user)
 
         queryset = queryset.filter(
@@ -114,7 +122,17 @@ def staff_queryset_for_user(user, include_archived=False):
             user__is_superuser=False,
         )
 
-    elif not is_admin_or_owner(user):
+    elif is_owner_or_superuser(user):
+        pass
+
+    elif getattr(user, 'role', None) == 'ACCOUNTS':
+        queryset = queryset.exclude(
+            user__is_superuser=True
+        ).exclude(
+            user__role='OWNER'
+        )
+
+    else:
         return queryset.none()
 
     return queryset
@@ -137,10 +155,7 @@ def ensure_staff_management_access(request, staff, action=None):
         ensure_admin_target_access(request, staff)
         return
 
-    if (
-        getattr(user, 'role', None) == 'SUPERVISOR'
-        and not user.is_superuser
-    ):
+    if is_supervisor_actor(user):
         supervisor = supervisor_profile_for(user)
 
         if (
@@ -548,25 +563,22 @@ class StaffBranchPickerView(generics.ListAPIView):
                 user__role='OWNER'
             )
 
-        elif (
-            getattr(user, 'role', None) == 'SUPERVISOR'
-            and not user.is_superuser
-        ):
+        elif is_supervisor_actor(user):
             supervisor = supervisor_profile_for(user)
 
             queryset = queryset.filter(
                 branch_id=supervisor.branch_id
             )
 
-        else:
-            branch_id = self.request.query_params.get('branch_id')
+        branch_id = self.request.query_params.get('branch_id')
 
-            if branch_id:
-                if not branch_id.isdigit():
-                    raise DRFValidationError({
-                        'branch_id': 'A valid branch ID is required.'
-                    })
+        if branch_id:
+            if not branch_id.isdigit():
+                raise DRFValidationError({
+                    'branch_id': 'A valid branch ID is required.'
+                })
 
+            if not is_supervisor_actor(user):
                 queryset = queryset.filter(
                     branch_id=int(branch_id)
                 )

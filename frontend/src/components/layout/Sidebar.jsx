@@ -10,6 +10,7 @@ import {
   X,
   Clock,
   ClipboardList,
+  Wrench,
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
@@ -40,31 +41,31 @@ const navigation = [
         path: '/my-day',
         icon: ClipboardList,
       },
-
       {
         name: 'Monitor Assignments',
         path: '/monitor-assignments',
         icon: ClipboardCheck,
       },
-
       {
         name: 'Staff Management',
         path: '/staff',
         icon: Users,
       },
-
+      {
+        name: 'Services Management',
+        path: '/services',
+        icon: Wrench,
+      },
       {
         name: 'My Attendance',
         path: '/my-attendance',
         icon: Clock,
       },
-
       {
         name: 'Attendance & Shifts',
         path: '/attendance',
         icon: ClipboardCheck,
       },
-
       {
         name: 'Check-in',
         path: '/check-in',
@@ -76,7 +77,6 @@ const navigation = [
 
 export default function Sidebar({ isOpen = false, onClose }) {
   const { user } = useAuth()
-
   const role = getUserRole(user)
 
   const roleNavigation =
@@ -129,7 +129,6 @@ export default function Sidebar({ isOpen = false, onClose }) {
             <h1 className="text-lg font-bold tracking-wide">
               NEV CARWASH
             </h1>
-
             <p className="text-xs font-bold text-yellow-300">
               Management System
             </p>

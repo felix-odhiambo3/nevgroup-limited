@@ -5,18 +5,19 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from rest_framework import serializers, status
+from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from branches.models import Branch
-from staff.models import StaffProfile
 
 from .models import Visit, VisitService, ServiceAssignment
 from .monitoring import (
     get_monitoring_access,
+    get_shift_filter,
+    apply_shift_filter,
     MonitorAssignmentSerializer,
 )
 
@@ -164,6 +165,9 @@ class BranchWideMonitorAssignmentsView(APIView):
                 )
             })
 
+        shift_filter = get_shift_filter(request)
+        queryset = apply_shift_filter(queryset, shift_filter)
+
         search = request.query_params.get("search", "").strip()
 
         if search:
@@ -189,6 +193,7 @@ class BranchWideMonitorAssignmentsView(APIView):
             "branch_id": access["branch_id"],
             "branch_name": access["branch_name"],
             "status_filter": assignment_filter,
+            "shift_filter": shift_filter,
             "count": queryset.count(),
             "assignments": MonitorAssignmentSerializer(
                 queryset,
@@ -201,13 +206,9 @@ class WorkloadReportView(APIView):
     """
     Read-only operational workload report for one operational date.
 
-    Includes:
-    - Active visits and vehicles.
-    - Active services.
-    - Pending and completed employee assignments.
-    - Removed assignment history.
-    - Services without an active employee assignment.
-    - Employee-level workload totals.
+    Shift filtering affects assignment metrics and employee workload.
+    It deliberately does not affect visit totals, service totals, or
+    the determination of assigned and unassigned services.
     """
 
     permission_classes = [IsAuthenticated]
@@ -216,6 +217,7 @@ class WorkloadReportView(APIView):
         access = get_monitoring_access(request.user)
         work_date = get_report_date(request)
         start, end = get_operational_window(work_date)
+        shift_filter = get_shift_filter(request)
 
         branches = get_accessible_branches(request, access)
 
@@ -247,7 +249,9 @@ class WorkloadReportView(APIView):
 
             service_ids = [service.id for service in services]
 
-            assignments = list(
+            # Keep every assignment here. This unfiltered set is needed
+            # to calculate whether each service has any active employee.
+            all_assignments = list(
                 ServiceAssignment.objects
                 .filter(visit_service_id__in=service_ids)
                 .select_related(
@@ -265,8 +269,43 @@ class WorkloadReportView(APIView):
                 .order_by("assigned_at", "id")
             )
 
+            # Apply the selected shift only to assignment-level reporting.
+            report_assignments = [
+                assignment
+                for assignment in all_assignments
+                if (
+                    shift_filter == "ALL"
+                    or (
+                        shift_filter == "NOT_RECORDED"
+                        and assignment.shift is None
+                    )
+                    or assignment.shift == shift_filter
+                )
+            ]
+
+            # Service allocation remains based on all shifts.
+            all_active_assignments = [
+                assignment
+                for assignment in all_assignments
+                if assignment.is_active
+            ]
+
+            active_assignment_counts = {}
+
+            for assignment in all_active_assignments:
+                service_id = assignment.visit_service_id
+                active_assignment_counts[service_id] = (
+                    active_assignment_counts.get(service_id, 0) + 1
+                )
+
+            unassigned_services = [
+                service for service in services
+                if active_assignment_counts.get(service.id, 0) == 0
+            ]
+
+            # These counts and employee totals are shift-filtered.
             active_assignments = [
-                assignment for assignment in assignments
+                assignment for assignment in report_assignments
                 if assignment.is_active
             ]
 
@@ -281,21 +320,8 @@ class WorkloadReportView(APIView):
             ]
 
             removed_assignments = [
-                assignment for assignment in assignments
+                assignment for assignment in report_assignments
                 if not assignment.is_active
-            ]
-
-            active_assignment_counts = {}
-
-            for assignment in active_assignments:
-                service_id = assignment.visit_service_id
-                active_assignment_counts[service_id] = (
-                    active_assignment_counts.get(service_id, 0) + 1
-                )
-
-            unassigned_services = [
-                service for service in services
-                if active_assignment_counts.get(service.id, 0) == 0
             ]
 
             staff_totals = {}
@@ -374,6 +400,7 @@ class WorkloadReportView(APIView):
             branch_reports.append({
                 "branch_id": branch.id,
                 "branch_name": branch.name,
+                "shift_filter": shift_filter,
                 "summary": {
                     "total_visits": len(visit_ids),
                     "active_visits": len(active_visits),
@@ -407,7 +434,7 @@ class WorkloadReportView(APIView):
                     key=lambda item: item["staff_name"].lower(),
                 ),
                 "assignments": MonitorAssignmentSerializer(
-                    assignments,
+                    report_assignments,
                     many=True,
                 ).data,
             })
@@ -433,6 +460,7 @@ class WorkloadReportView(APIView):
             "work_date": work_date.isoformat(),
             "operational_start": start,
             "operational_end": end,
+            "shift_filter": shift_filter,
             "summary": overall,
             "branches": branch_reports,
         }, status=status.HTTP_200_OK)

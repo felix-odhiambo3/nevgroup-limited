@@ -146,6 +146,7 @@ class WorkloadMonitoringTests(APITestCase):
             "Other Branch Car Wash",
         )
 
+        # Legacy fixture: no shift was recorded.
         self.assignment_created_by_other_supervisor = (
             ServiceAssignment.objects.create(
                 visit_service=self.visit_service,
@@ -319,6 +320,240 @@ class WorkloadMonitoringTests(APITestCase):
         self.assertEqual(cleaner_row["assigned"], 1)
         self.assertEqual(cleaner_row["completed"], 1)
         self.assertEqual(cleaner_row["pending"], 0)
+
+    def test_not_recorded_filter_returns_legacy_assignments(self):
+        self.authenticate()
+
+        response = self.client.get(
+            reverse("visit_workload_report"),
+            {"shift_filter": "NOT_RECORDED"},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(
+            response.data["shift_filter"],
+            "NOT_RECORDED",
+        )
+
+        branch_report = response.data["branches"][0]
+
+        self.assertEqual(
+            branch_report["summary"]["active_assignments"],
+            1,
+        )
+
+        self.assertEqual(
+            len(branch_report["assignments"]),
+            1,
+        )
+
+        self.assertIsNone(
+            branch_report["assignments"][0]["shift"],
+        )
+
+        self.assertEqual(
+            branch_report["assignments"][0]["shift_display"],
+            "Not recorded",
+        )
+
+    def test_day_filter_does_not_change_visit_or_service_allocation_totals(self):
+        day_assignment = self.assignment_created_by_other_supervisor
+        day_assignment.shift = "DAY"
+        day_assignment.save(update_fields=["shift"])
+
+        ServiceAssignment.objects.create(
+            visit_service=self.visit_service,
+            staff=self.replacement_cleaner_profile,
+            assigned_by=self.other_supervisor,
+            shift="NIGHT",
+        )
+
+        self.authenticate()
+
+        response = self.client.get(
+            reverse("visit_workload_report"),
+            {"shift_filter": "DAY"},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(response.data["shift_filter"], "DAY")
+
+        summary = response.data["summary"]
+
+        # Visit and service totals remain independent of shift.
+        self.assertEqual(summary["total_visits"], 1)
+        self.assertEqual(summary["active_visits"], 1)
+        self.assertEqual(summary["total_services"], 2)
+
+        # The service has two active assignments across both shifts.
+        # It remains one assigned service under the DAY filter.
+        self.assertEqual(summary["assigned_services"], 1)
+        self.assertEqual(summary["unassigned_services"], 1)
+
+        # Assignment-level figures are restricted to DAY.
+        self.assertEqual(summary["active_assignments"], 1)
+        self.assertEqual(summary["pending_assignments"], 1)
+        self.assertEqual(summary["completed_assignments"], 0)
+
+        branch_report = response.data["branches"][0]
+
+        self.assertEqual(len(branch_report["assignments"]), 1)
+        self.assertEqual(
+            branch_report["assignments"][0]["shift"],
+            "DAY",
+        )
+
+        self.assertEqual(
+            branch_report["services"][0]["assigned_employee_count"],
+            2,
+        )
+
+    def test_night_filter_returns_only_night_assignments(self):
+        self.assignment_created_by_other_supervisor.shift = "DAY"
+        self.assignment_created_by_other_supervisor.save(
+            update_fields=["shift"]
+        )
+
+        night_assignment = ServiceAssignment.objects.create(
+            visit_service=self.visit_service,
+            staff=self.replacement_cleaner_profile,
+            assigned_by=self.other_supervisor,
+            shift="NIGHT",
+        )
+
+        self.authenticate()
+
+        response = self.client.get(
+            reverse("visit_workload_report"),
+            {"shift_filter": "NIGHT"},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        branch_report = response.data["branches"][0]
+
+        self.assertEqual(
+            branch_report["summary"]["active_assignments"],
+            1,
+        )
+
+        self.assertEqual(
+            len(branch_report["assignments"]),
+            1,
+        )
+
+        self.assertEqual(
+            branch_report["assignments"][0]["id"],
+            night_assignment.pk,
+        )
+
+        self.assertEqual(
+            branch_report["assignments"][0]["shift"],
+            "NIGHT",
+        )
+
+    def test_invalid_shift_filter_is_rejected(self):
+        self.authenticate()
+
+        response = self.client.get(
+            reverse("visit_workload_report"),
+            {"shift_filter": "EVENING"},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_assignment_monitoring_supports_shift_filter(self):
+        assignment = self.assignment_created_by_other_supervisor
+        assignment.shift = "NIGHT"
+        assignment.save(update_fields=["shift"])
+
+        self.authenticate()
+
+        response = self.client.get(
+            reverse("supervisor_monitor_assignments"),
+            {"shift_filter": "NIGHT"},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(
+            response.data["shift_filter"],
+            "NIGHT",
+        )
+
+        self.assertEqual(response.data["count"], 1)
+
+        self.assertEqual(
+            response.data["assignments"][0]["shift_display"],
+            "Night",
+        )
+
+    def test_supervisor_reassignment_preserves_original_shift(self):
+        original_assignment = ServiceAssignment.objects.create(
+            visit_service=self.visit_service,
+            staff=self.cleaner_profile,
+            assigned_by=self.supervisor,
+            shift="NIGHT",
+        )
+
+        self.authenticate()
+
+        response = self.client.post(
+            reverse(
+                "supervisor_reassign_assignment",
+                kwargs={
+                    "assignment_id": original_assignment.pk,
+                },
+            ),
+            {
+                "new_staff_id": self.replacement_cleaner_profile.pk,
+                "reason": "Employee reassigned for workload balancing",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            response.data,
+        )
+
+        original_assignment.refresh_from_db()
+
+        self.assertFalse(original_assignment.is_active)
+        self.assertEqual(original_assignment.shift, "NIGHT")
+
+        replacement = ServiceAssignment.objects.get(
+            pk=response.data["new_assignment"]["id"],
+        )
+
+        self.assertEqual(
+            replacement.staff_id,
+            self.replacement_cleaner_profile.pk,
+        )
+
+        self.assertEqual(replacement.shift, "NIGHT")
+        self.assertEqual(
+            response.data["new_assignment"]["shift_display"],
+            "Night",
+        )
 
     def test_invalid_work_date_is_rejected(self):
         self.authenticate()
