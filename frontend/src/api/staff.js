@@ -1,12 +1,18 @@
-
 import api from './client'
 
-// Retrieve all staff members.
+// Retrieve all staff members visible to the authenticated user.
 export const getStaff = async () => {
   const response = await api.get('staff/')
   return Array.isArray(response.data)
     ? response.data
     : response.data.results || []
+}
+
+// Retrieve the authenticated user's own staff profile.
+// Supervisors use this to identify their assigned branch.
+export const getStaffSelfProfile = async () => {
+  const response = await api.get('staff/me/')
+  return response.data
 }
 
 // Register a new staff member.
@@ -45,6 +51,7 @@ export const changeStaffShift = async (staffId, shiftData) => {
 }
 
 // Activate, deactivate, suspend, or archive a staff member.
+// The backend determines whether the authenticated user may perform the action.
 export const updateStaffStatus = async (staffId, statusData) => {
   const response = await api.post(`staff/${staffId}/status/`, statusData)
   return response.data
@@ -58,7 +65,7 @@ export const getStaffStatusHistory = async (staffId) => {
     : response.data.results || []
 }
 
-// Update a user's role. A reason is required when the role changes.
+// Update a user's role.
 export const updateStaffRole = async (userId, roleData) => {
   const response = await api.patch(
     `auth/users/${userId}/`,

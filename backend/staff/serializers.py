@@ -1,9 +1,11 @@
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from .models import (
     StaffProfile,
@@ -14,6 +16,25 @@ from .services import assign_staff_shift
 
 User = get_user_model()
 
+def is_supervisor_actor(user):
+    return (
+        not user.is_superuser
+        and getattr(user, 'role', None) == 'SUPERVISOR'
+    )
+
+def get_supervisor_branch(user):
+    supervisor = StaffProfile.objects.filter(
+        user=user,
+        is_archived=False,
+        employment_status=StaffProfile.EmploymentStatus.ACTIVE,
+    ).first()
+
+    if supervisor is None:
+        raise PermissionDenied(
+            'An active supervisor staff profile is required.'
+        )
+
+    return supervisor.branch_id
 
 class StaffProfileSerializer(serializers.ModelSerializer):
 
@@ -109,6 +130,45 @@ class StaffProfileSerializer(serializers.ModelSerializer):
 
         return current_assignment.shift
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+
+        if (
+            request
+            and request.user.is_authenticated
+            and is_supervisor_actor(request.user)
+        ):
+            instance = self.instance
+
+            if instance and instance.user.role != 'CLEANER':
+                raise PermissionDenied(
+                    'Supervisors can only manage cleaners.'
+                )
+
+            supervisor_branch_id = get_supervisor_branch(
+                request.user
+            )
+
+            if instance and instance.branch_id != supervisor_branch_id:
+                raise PermissionDenied(
+                    'You can only manage cleaners in your assigned branch.'
+                )
+
+            if 'branch' in attrs:
+                if attrs['branch'].pk != supervisor_branch_id:
+                    raise PermissionDenied(
+                        'You cannot move cleaners to another branch.'
+                    )
+
+            if 'employment_status' in attrs:
+                raise serializers.ValidationError({
+                    'employment_status': (
+                        'Use the staff status action endpoint '
+                        'to change employment status.'
+                    )
+                })
+
+        return attrs
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):
 
@@ -139,7 +199,6 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
             'effective_to',
         ]
 
-
 class StaffStatusActionSerializer(serializers.Serializer):
 
     action = serializers.ChoiceField(
@@ -169,7 +228,6 @@ class StaffStatusActionSerializer(serializers.Serializer):
         attrs['reason'] = reason
         return attrs
 
-
 class StaffStatusHistorySerializer(serializers.ModelSerializer):
 
     performed_by_username = serializers.CharField(
@@ -191,7 +249,6 @@ class StaffStatusHistorySerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = fields
-
 
 class StaffRegistrationSerializer(serializers.ModelSerializer):
 
@@ -249,7 +306,7 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError(
-                "This username is already taken."
+                'This username is already taken.'
             )
 
         return value
@@ -257,7 +314,7 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError(
-                "This email is already registered."
+                'This email is already registered.'
             )
 
         return value
@@ -267,7 +324,7 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
             staff_number=value
         ).exists():
             raise serializers.ValidationError(
-                "This staff number already exists."
+                'This staff number already exists.'
             )
 
         return value
@@ -275,10 +332,34 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
     def validate_date_joined(self, value):
         if value > timezone.localdate():
             raise serializers.ValidationError(
-                "Date joined cannot be in the future."
+                'Date joined cannot be in the future.'
             )
 
         return value
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+
+        if (
+            request
+            and request.user.is_authenticated
+            and is_supervisor_actor(request.user)
+        ):
+            if attrs.get('role') != 'CLEANER':
+                raise PermissionDenied(
+                    'Supervisors can only register cleaners.'
+                )
+
+            supervisor_branch_id = get_supervisor_branch(
+                request.user
+            )
+
+            if attrs['branch'].pk != supervisor_branch_id:
+                raise PermissionDenied(
+                    'You can only register cleaners in your assigned branch.'
+                )
+
+        return attrs
 
     def create(self, validated_data):
         shift = validated_data.pop('shift')
@@ -296,7 +377,7 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
 
         if request is None or not request.user.is_authenticated:
             raise serializers.ValidationError(
-                "An authenticated administrator is required."
+                'An authenticated staff manager is required.'
             )
 
         with transaction.atomic():
@@ -330,7 +411,6 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
             context=self.context
         ).data
 
-
 class ShiftChangeSerializer(serializers.Serializer):
 
     shift = serializers.ChoiceField(
@@ -347,7 +427,7 @@ class ShiftChangeSerializer(serializers.Serializer):
     def validate_effective_from(self, value):
         if value < timezone.localdate():
             raise serializers.ValidationError(
-                "Shift changes cannot be backdated."
+                'Shift changes cannot be backdated.'
             )
 
         return value
