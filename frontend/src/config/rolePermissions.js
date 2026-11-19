@@ -35,6 +35,27 @@ export const ROLE_DETAILS = Object.freeze({
   },
 })
 
+const PAYMENT_VIEW_ROLES = [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+  ROLES.ACCOUNTS,
+  ROLES.SUPERVISOR,
+]
+
+const COMMISSION_READ_ROLES = [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+  ROLES.ACCOUNTS,
+  ROLES.SUPERVISOR,
+  ROLES.CLEANER,
+]
+
+const GLOBAL_PAYMENT_ROLES = [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+  ROLES.ACCOUNTS,
+]
+
 export const ROUTE_PERMISSIONS = Object.freeze({
   '/dashboard': [
     ROLES.OWNER,
@@ -71,9 +92,7 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.DETAILER,
   ],
 
-  '/my-day': [
-    ROLES.CLEANER,
-  ],
+  '/my-day': [ROLES.CLEANER],
 
   '/check-in': [
     ROLES.ADMIN,
@@ -86,6 +105,19 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
+
+  // Financial management
+  '/invoices': PAYMENT_VIEW_ROLES,
+  '/collections': PAYMENT_VIEW_ROLES,
+  '/reversals': GLOBAL_PAYMENT_ROLES,
+
+  // Revenue is restricted to supervisors and superusers.
+  '/revenue': [ROLES.SUPERVISOR],
+
+  // Commission records
+  '/commissions': COMMISSION_READ_ROLES,
+  '/commission-payouts': COMMISSION_READ_ROLES,
+  '/commission-adjustments': COMMISSION_READ_ROLES,
 })
 
 export const ACTION_PERMISSIONS = Object.freeze({
@@ -234,6 +266,31 @@ export const ACTION_PERMISSIONS = Object.freeze({
     ROLES.ACCOUNTS,
   ],
   'creditLedger.recordPayment': [ROLES.ADMIN, ROLES.ACCOUNTS],
+
+  // Invoices and collections
+  'payments.invoices.view': PAYMENT_VIEW_ROLES,
+  'payments.collections.view': PAYMENT_VIEW_ROLES,
+  'payments.collections.record': PAYMENT_VIEW_ROLES,
+
+  // Reversals
+  'payments.reversals.view': GLOBAL_PAYMENT_ROLES,
+  'payments.reversals.create': GLOBAL_PAYMENT_ROLES,
+
+  // Revenue
+  'payments.revenue.view': [ROLES.SUPERVISOR],
+
+  // Commission records
+  'commissions.view': COMMISSION_READ_ROLES,
+  'commissions.summary.view': COMMISSION_READ_ROLES,
+  'commissions.payouts.view': COMMISSION_READ_ROLES,
+  'commissions.adjustments.view': COMMISSION_READ_ROLES,
+
+  // Commission write permissions
+  'commissions.payouts.create': GLOBAL_PAYMENT_ROLES,
+  'commissions.adjustments.create': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+  ],
 })
 
 export function getUserRole(user) {
@@ -266,6 +323,15 @@ export function canAccessRoute(user, path) {
 
   if (!role) return false
 
+  // Revenue endpoint permits supervisors and backend superusers.
+  if (path === '/revenue') {
+    return (
+      role === ROLES.SUPERVISOR ||
+      user.is_superuser === true ||
+      user.isSuperuser === true
+    )
+  }
+
   const allowedRoles = ROUTE_PERMISSIONS[path]
 
   if (!allowedRoles) return false
@@ -277,6 +343,15 @@ export function canPerform(user, action) {
   const role = getUserRole(user)
 
   if (!role) return false
+
+  // Match backend revenue authorization.
+  if (action === 'payments.revenue.view') {
+    return (
+      role === ROLES.SUPERVISOR ||
+      user.is_superuser === true ||
+      user.isSuperuser === true
+    )
+  }
 
   const allowedRoles = ACTION_PERMISSIONS[action]
 

@@ -11,6 +11,12 @@ import {
   Clock,
   ClipboardList,
   Wrench,
+  Wallet,
+  FileText,
+  Receipt,
+  RotateCcw,
+  TrendingUp,
+  BadgeDollarSign,
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
@@ -70,6 +76,47 @@ const navigation = [
         name: 'Check-in',
         path: '/check-in',
         icon: CarFront,
+      },
+    ],
+  },
+
+  {
+    title: 'FINANCE',
+    items: [
+      {
+        name: 'Invoices',
+        path: '/invoices',
+        icon: FileText,
+      },
+      {
+        name: 'Payment Collections',
+        path: '/collections',
+        icon: Receipt,
+      },
+      {
+        name: 'Payment Reversals',
+        path: '/reversals',
+        icon: RotateCcw,
+      },
+      {
+        name: 'Revenue',
+        path: '/revenue',
+        icon: TrendingUp,
+      },
+      {
+        name: 'Cleaner Commissions',
+        path: '/commissions',
+        icon: BadgeDollarSign,
+      },
+      {
+        name: 'Commission Payouts',
+        path: '/commission-payouts',
+        icon: Wallet,
+      },
+      {
+        name: 'Commission Adjustments',
+        path: '/commission-adjustments',
+        icon: BadgeDollarSign,
       },
     ],
   },

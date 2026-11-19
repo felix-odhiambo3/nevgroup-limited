@@ -1,3 +1,4 @@
+
 from django.urls import path
 
 from payments.views import (
@@ -9,6 +10,11 @@ from payments.views import (
     PaymentReversalListView,
     PaymentReversalCreateView,
     SupervisorRevenueSummaryView,
+    CleanerCommissionListView,
+    CleanerCommissionDetailView,
+    CleanerCommissionSummaryView,
+    CommissionPayoutListCreateView,
+    CommissionAdjustmentListCreateView,
 )
 
 urlpatterns = [
@@ -51,5 +57,31 @@ urlpatterns = [
         'revenue-summary/',
         SupervisorRevenueSummaryView.as_view(),
         name='supervisor-revenue-summary',
+    ),
+
+    path(
+        'commissions/summary/',
+        CleanerCommissionSummaryView.as_view(),
+        name='cleaner-commission-summary',
+    ),
+    path(
+        'commissions/',
+        CleanerCommissionListView.as_view(),
+        name='cleaner-commission-list',
+    ),
+    path(
+        'commissions/<int:commission_id>/',
+        CleanerCommissionDetailView.as_view(),
+        name='cleaner-commission-detail',
+    ),
+    path(
+        'commission-payouts/',
+        CommissionPayoutListCreateView.as_view(),
+        name='commission-payout-list-create',
+    ),
+    path(
+        'commission-adjustments/',
+        CommissionAdjustmentListCreateView.as_view(),
+        name='commission-adjustment-list-create',
     ),
 ]

@@ -1,3 +1,4 @@
+
 import api from './client'
 
 // Retrieve all staff members visible to the authenticated user.
@@ -51,7 +52,6 @@ export const changeStaffShift = async (staffId, shiftData) => {
 }
 
 // Activate, deactivate, suspend, or archive a staff member.
-// The backend determines whether the authenticated user may perform the action.
 export const updateStaffStatus = async (staffId, statusData) => {
   const response = await api.post(`staff/${staffId}/status/`, statusData)
   return response.data
@@ -70,6 +70,15 @@ export const updateStaffRole = async (userId, roleData) => {
   const response = await api.patch(
     `auth/users/${userId}/`,
     roleData
+  )
+  return response.data
+}
+
+// Reset a user's password.
+export const resetStaffPassword = async (userId, passwordData) => {
+  const response = await api.post(
+    `auth/users/${userId}/reset-password/`,
+    passwordData
   )
   return response.data
 }

@@ -1,4 +1,3 @@
-
 import os
 from secrets import compare_digest
 
@@ -16,8 +15,12 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.token_blacklist.models import (
+    OutstandingToken,
+    BlacklistedToken,
+)
 
-from .models import UserRoleHistory
+from .models import UserRoleHistory, PasswordResetHistory
 from .permissions import IsAdminOrOwner, IsOwner
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -216,33 +219,33 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh_token = request.data.get('refresh')
+        refresh_token = request.data.get("refresh")
 
         if not refresh_token:
             return Response(
-                {'error': 'Refresh token is required.'},
+                {"error": "Refresh token is required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
             token = RefreshToken(refresh_token)
 
-            if token['user_id'] != request.user.id:
+            if token["user_id"] != request.user.id:
                 return Response(
-                    {'error': 'Invalid refresh token.'},
+                    {"error": "Invalid refresh token."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             token.blacklist()
 
             return Response(
-                {'message': 'Successfully logged out.'},
+                {"message": "Successfully logged out."},
                 status=status.HTTP_200_OK
             )
 
         except TokenError:
             return Response(
-                {'error': 'Invalid or expired refresh token.'},
+                {"error": "Invalid or expired refresh token."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -254,13 +257,13 @@ class MeView(APIView):
         user = request.user
 
         return Response({
-            'id': user.id,
-            'username': user.username,
-            'email': user.email,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'role': user.role,
-            'is_superuser': user.is_superuser,
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "role": user.role,
+            "is_superuser": user.is_superuser,
         })
 
 
@@ -269,8 +272,8 @@ class OwnerTestView(APIView):
 
     def get(self, request):
         return Response({
-            'message': 'Access granted. You are an Owner.',
-            'role': request.user.role,
+            "message": "Access granted. You are an Owner.",
+            "role": request.user.role,
         })
 
 
@@ -279,11 +282,11 @@ class UserListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return get_manageable_users(self.request).order_by(
-            '-date_joined'
+            "-date_joined"
         )
 
     def get_serializer_class(self):
-        if self.request.method == 'POST':
+        if self.request.method == "POST":
             return UserCreateSerializer
 
         return UserListSerializer
@@ -305,21 +308,21 @@ class UserDeactivateView(APIView):
             user = get_manageable_users(request).get(pk=pk)
         except User.DoesNotExist:
             return Response(
-                {'error': 'User not found.'},
+                {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
 
         if user.pk == request.user.pk:
             return Response(
-                {'error': 'You cannot deactivate your own account.'},
+                {"error": "You cannot deactivate your own account."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         user.is_active = False
-        user.save(update_fields=['is_active'])
+        user.save(update_fields=["is_active"])
 
         return Response(
-            {'message': 'User successfully deactivated.'},
+            {"message": "User successfully deactivated."},
             status=status.HTTP_200_OK
         )
 
@@ -332,27 +335,115 @@ class UserRoleHistoryView(generics.ListAPIView):
         try:
             user = get_manageable_users(
                 self.request
-            ).get(pk=self.kwargs['pk'])
+            ).get(pk=self.kwargs["pk"])
         except User.DoesNotExist:
             return UserRoleHistory.objects.none()
 
         return UserRoleHistory.objects.filter(
             user=user
         ).select_related(
-            'user',
-            'changed_by',
+            "user",
+            "changed_by",
         ).order_by(
-            '-created_at',
-            '-id',
+            "-created_at",
+            "-id",
         )
 
     def list(self, request, *args, **kwargs):
         if not get_manageable_users(request).filter(
-            pk=self.kwargs['pk']
+            pk=self.kwargs["pk"]
         ).exists():
             return Response(
-                {'error': 'User not found.'},
+                {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
 
         return super().list(request, *args, **kwargs)
+
+
+class UserPasswordResetView(APIView):
+    """
+    Allows ADMIN, OWNER and superusers to reset manageable user passwords.
+
+    ADMIN cannot reset OWNER or superuser accounts because
+    get_manageable_users() excludes those accounts for ADMIN.
+    """
+
+    permission_classes = [IsAdminOrOwner]
+
+    def post(self, request, pk):
+        new_password = request.data.get("new_password", "")
+        confirm_password = request.data.get("confirm_password", "")
+
+        if not new_password or not confirm_password:
+            return Response(
+                {
+                    "error": (
+                        "Both new_password and confirm_password "
+                        "are required."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if new_password != confirm_password:
+            return Response(
+                {"error": "The passwords do not match."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = get_manageable_users(request).get(pk=pk)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found or you cannot manage this account."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            validate_password(new_password, user=user)
+        except ValidationError as exc:
+            return Response(
+                {"error": exc.messages},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            with transaction.atomic():
+                user.set_password(new_password)
+                user.save(update_fields=["password"])
+
+                PasswordResetHistory.objects.create(
+                    user=user,
+                    reset_by=request.user,
+                )
+
+                outstanding_tokens = OutstandingToken.objects.filter(
+                    user=user
+                )
+
+                for outstanding_token in outstanding_tokens:
+                    BlacklistedToken.objects.get_or_create(
+                        token=outstanding_token
+                    )
+
+        except Exception:
+            return Response(
+                {
+                    "error": (
+                        "Password reset failed. "
+                        "Check the server logs before retrying."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            {
+                "message": "Password reset successfully.",
+                "user_id": user.id,
+                "username": user.username,
+                "reset_by": request.user.username,
+            },
+            status=status.HTTP_200_OK
+        )

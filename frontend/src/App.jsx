@@ -26,6 +26,7 @@ import MyAttendancePage from './pages/MyAttendancePage'
 import MyDayPage from './pages/MyDayPage'
 import CheckInPage from './pages/CheckInPage'
 import MonitorAssignmentsPage from './pages/MonitorAssignmentsPage'
+import InvoicePage from './pages/InvoicePage'
 
 import MainLayout from './components/layout/MainLayout'
 
@@ -107,10 +108,13 @@ function AppRoutes() {
         <Route path="/my-attendance" element={<MyAttendancePage />} />
         <Route path="/my-day" element={<MyDayPage />} />
         <Route path="/check-in" element={<CheckInPage />} />
+
         <Route
           path="/monitor-assignments"
           element={<MonitorAssignmentsPage />}
         />
+
+        <Route path="/invoices" element={<InvoicePage />} />
       </Route>
 
       <Route

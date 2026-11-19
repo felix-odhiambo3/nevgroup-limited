@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -21,6 +20,7 @@ import {
   Pencil,
   Shield,
   CalendarClock,
+  KeyRound,
 } from 'lucide-react'
 
 import { useAuth } from '../features/auth/AuthContext'
@@ -36,6 +36,8 @@ import {
   getStaffRoleHistory,
   getStaffShiftHistory,
   changeStaffShift,
+  resetStaffPassword,
+  getStaffSelfProfile,
 } from '../api/staff'
 
 import { getBranches } from '../api/branches'
@@ -254,13 +256,16 @@ export default function StaffPage() {
   const isOwner = currentRole === 'OWNER' || Boolean(user?.is_superuser)
   const isAdmin = currentRole === 'ADMIN' && !user?.is_superuser
   const isSupervisor = currentRole === 'SUPERVISOR'
-
-  const canRegisterStaff = isOwner || isAdmin
+  const canRegisterStaff = isOwner || isAdmin || isSupervisor
   const canManageStaff = isOwner || isAdmin || isSupervisor
   const canViewDetails = canManageStaff
   const canManageRoles = isOwner || isAdmin
   const canManageAdminRole = isOwner
   const canArchiveStaff = isOwner || isAdmin
+  const canResetPasswords = isOwner || isAdmin
+  const [supervisorProfile, setSupervisorProfile] = useState(null)
+  const [supervisorProfileLoading, setSupervisorProfileLoading] = useState(false)
+  const [supervisorProfileError, setSupervisorProfileError] = useState('')
 
   const [staff, setStaff] = useState([])
   const [branches, setBranches] = useState([])
@@ -286,6 +291,13 @@ export default function StaffPage() {
   const [detailsMember, setDetailsMember] = useState(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [detailsError, setDetailsError] = useState('')
+
+  // Password reset is available only to authorized administrators and owners.
+  const [resetMember, setResetMember] = useState(null)
+  const [resetPassword, setResetPassword] = useState('')
+  const [confirmResetPassword, setConfirmResetPassword] = useState('')
+  const [resetError, setResetError] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
 
   const [editingMember, setEditingMember] = useState(null)
   const [editForm, setEditForm] = useState(initialEditForm)
@@ -325,6 +337,44 @@ export default function StaffPage() {
   const [shiftHistory, setShiftHistory] = useState([])
   const [shiftHistoryLoading, setShiftHistoryLoading] = useState(false)
   const [shiftHistoryError, setShiftHistoryError] = useState('')
+
+  useEffect(() => {
+  if (!isSupervisor) return
+
+  let active = true
+
+  const loadSupervisorProfile = async () => {
+    setSupervisorProfileLoading(true)
+    setSupervisorProfileError('')
+
+    try {
+      const profile = await getStaffSelfProfile()
+
+      if (!active) return
+
+      setSupervisorProfile(profile)
+      setForm((previous) => ({
+        ...previous,
+        role: 'CLEANER',
+        branch: String(profile.branch),
+      }))
+    } catch (error) {
+      if (!active) return
+
+      setSupervisorProfileError(
+        'Unable to load your assigned branch. Registration is temporarily unavailable.'
+      )
+    } finally {
+      if (active) setSupervisorProfileLoading(false)
+    }
+  }
+
+  loadSupervisorProfile()
+
+  return () => {
+    active = false
+  }
+}, [isSupervisor])
 
   const loadStaff = useCallback(async () => {
     setLoading(true)
@@ -437,6 +487,67 @@ export default function StaffPage() {
     setDetailsOpen(false)
     setDetailsMember(null)
     setDetailsError('')
+  }
+
+  const openPasswordReset = (member) => {
+    if (!canResetPasswords || !member?.user) return
+    if (isAdmin && (member.role === 'OWNER' || member.is_superuser)) return
+
+    setResetMember(member)
+    setResetPassword('')
+    setConfirmResetPassword('')
+    setResetError('')
+  }
+
+  const closePasswordReset = () => {
+    if (resetLoading) return
+
+    setResetMember(null)
+    setResetPassword('')
+    setConfirmResetPassword('')
+    setResetError('')
+  }
+
+  const handlePasswordReset = async (event) => {
+    event.preventDefault()
+
+    if (!canResetPasswords || !resetMember?.user || resetLoading) return
+
+    setResetError('')
+    setSuccessMessage('')
+
+    if (!resetPassword) {
+      setResetError('Enter the new password.')
+      return
+    }
+
+    if (resetPassword !== confirmResetPassword) {
+      setResetError('The password and confirmation do not match.')
+      return
+    }
+
+    setResetLoading(true)
+
+    try {
+      await resetStaffPassword(resetMember.user, {
+        new_password: resetPassword,
+      })
+
+      const staffLabel = resetMember.staff_number
+        ? `staff number ${resetMember.staff_number}`
+        : resetMember.username || 'the selected account'
+
+      setSuccessMessage(`Password reset successfully for ${staffLabel}.`)
+      setResetMember(null)
+      setResetPassword('')
+      setConfirmResetPassword('')
+      setDetailsOpen(false)
+      setDetailsMember(null)
+    } catch (err) {
+      setResetError(getErrorMessage(err))
+    } finally {
+      setResetLoading(false)
+    }
   }
 
   const openRegistration = () => {
@@ -1267,7 +1378,19 @@ export default function StaffPage() {
                 />
               </div>
 
-              <div className="mt-5 flex justify-end">
+              <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+                {canResetPasswords && detailsMember.user &&
+                  (isOwner || (detailsMember.role !== 'OWNER' && !detailsMember.is_superuser)) && (
+                    <button
+                      type="button"
+                      onClick={() => openPasswordReset(detailsMember)}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+                    >
+                      <KeyRound size={16} />
+                      Reset Password
+                    </button>
+                  )}
+
                 <button
                   type="button"
                   onClick={closeDetails}
@@ -1278,6 +1401,88 @@ export default function StaffPage() {
               </div>
             </>
           ) : null}
+        </Modal>
+      )}
+
+      {/* Staff password reset modal */}
+      {resetMember && canResetPasswords && (
+        <Modal
+          title="Reset Staff Password"
+          description={
+            `Set a new password for ${resetMember.full_name || resetMember.username || `staff number ${resetMember.staff_number || ''}`}.`
+          }
+          onClose={closePasswordReset}
+          maxWidth="max-w-lg"
+          footer={
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
+              <button
+                type="button"
+                onClick={closePasswordReset}
+                disabled={resetLoading}
+                className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="staff-password-reset-form"
+                disabled={resetLoading || !resetPassword || !confirmResetPassword}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {resetLoading ? (
+                  <><RefreshCw size={16} className="animate-spin" /> Resetting...</>
+                ) : (
+                  <><KeyRound size={16} /> Reset Password</>
+                )}
+              </button>
+            </div>
+          }
+        >
+          <form id="staff-password-reset-form" onSubmit={handlePasswordReset} className="space-y-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              The new password will replace the employee's current password. Their outstanding refresh tokens will be invalidated.
+            </div>
+
+            <div>
+              <label htmlFor="staff_new_password" className={labelClass}>
+                New Password
+              </label>
+              <input
+                id="staff_new_password"
+                type="password"
+                autoComplete="new-password"
+                value={resetPassword}
+                onChange={(event) => setResetPassword(event.target.value)}
+                className={inputClass}
+                placeholder="Enter the new password"
+                disabled={resetLoading}
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="staff_confirm_new_password" className={labelClass}>
+                Confirm New Password
+              </label>
+              <input
+                id="staff_confirm_new_password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmResetPassword}
+                onChange={(event) => setConfirmResetPassword(event.target.value)}
+                className={inputClass}
+                placeholder="Re-enter the new password"
+                disabled={resetLoading}
+                required
+              />
+            </div>
+
+            {resetError && (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 whitespace-pre-line">
+                {resetError}
+              </div>
+            )}
+          </form>
         </Modal>
       )}
 
@@ -1595,7 +1800,7 @@ export default function StaffPage() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-slate-900">
-                          {formatRole(item.previous_role)} ΓåÆ {formatRole(item.new_role)}
+                          {formatRole(item.previous_role)} → {formatRole(item.new_role)}
                         </span>
                         <span className="text-xs text-slate-500 flex items-center gap-1">
                           <Clock size={12} />
@@ -2030,48 +2235,62 @@ export default function StaffPage() {
                     </div>
 
                     <div>
-                      <label htmlFor="branch" className={labelClass}>
-                        Branch *
-                      </label>
-                      <div className="relative">
-                        <Building2
-                          size={17}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                        />
-                        <select
-                          id="branch"
-                          name="branch"
-                          value={form.branch}
-                          onChange={updateField}
-                          className={`${inputClass} pl-10`}
-                          required
-                          disabled={branchesLoading || branches.length === 0}
-                        >
-                          <option value="">
-                            {branchesLoading
-                              ? 'Loading branches...'
-                              : 'Select branch'}
-                          </option>
-                          {branches.map((branch) => (
-                            <option key={branch.id} value={branch.id}>
-                              {branch.name} ({branch.code})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+  <label htmlFor="branch" className={labelClass}>
+    Assigned Branch *
+  </label>
 
-                      {branchError && (
-                        <p className="text-xs text-red-600 mt-1">
-                          {branchError}
-                        </p>
-                      )}
+  {isSupervisor ? (
+    <div className="space-y-1">
+      <input
+        type="text"
+        value={supervisorProfile?.branch_name || 'Loading your assigned branch...'}
+        className={`${inputClass} bg-slate-100`}
+        readOnly
+        disabled
+      />
+      {supervisorProfileError && (
+        <p className="text-xs text-red-600">{supervisorProfileError}</p>
+      )}
+    </div>
+  ) : (
+    <>
+      <div className="relative">
+        <Building2
+          size={17}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        />
+        <select
+          id="branch"
+          name="branch"
+          value={form.branch}
+          onChange={updateField}
+          className={`${inputClass} pl-10`}
+          required
+          disabled={branchesLoading || branches.length === 0}
+        >
+          <option value="">
+            {branchesLoading ? 'Loading branches...' : 'Select branch'}
+          </option>
+          {branches.map((branch) => (
+            <option key={branch.id} value={branch.id}>
+              {branch.name} ({branch.code})
+            </option>
+          ))}
+        </select>
+      </div>
 
-                      {!branchesLoading && branches.length === 0 && (
-                        <p className="text-xs text-red-600 mt-1">
-                          No active branches available.
-                        </p>
-                      )}
-                    </div>
+      {branchError && (
+        <p className="text-xs text-red-600 mt-1">{branchError}</p>
+      )}
+
+      {!branchesLoading && branches.length === 0 && (
+        <p className="text-xs text-red-600 mt-1">
+          No active branches available.
+        </p>
+      )}
+    </>
+  )}
+</div>
 
                     <div>
                       <label htmlFor="role" className={labelClass}>

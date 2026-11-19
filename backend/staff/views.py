@@ -203,13 +203,20 @@ class StaffListCreateView(generics.ListCreateAPIView):
         return StaffDirectorySerializer
 
     def create(self, request, *args, **kwargs):
-        if not is_admin_or_owner(request.user):
+        user = request.user
+
+        if is_supervisor_actor(user):
+            # The registration serializer also validates the
+            # supervisor's branch and permitted role.
+            pass
+
+        elif not is_admin_or_owner(user):
             raise PermissionDenied(
-                'Only ADMIN or OWNER users may register staff.'
+                'Only ADMIN, OWNER or an authorized SUPERVISOR '
+                'may register staff.'
             )
 
         return super().create(request, *args, **kwargs)
-
 
 class StaffDetailView(generics.RetrieveUpdateAPIView):
 

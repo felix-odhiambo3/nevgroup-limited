@@ -11,6 +11,10 @@ from django.utils import timezone
 from branches.models import Branch
 from payments.models import (
     BranchTaxConfiguration,
+    CleanerCommission,
+    CommissionPayout,
+    CommissionAdjustment,
+    COMMISSION_RATES,
     Invoice,
     InvoiceLine,
     PaymentCollection,
@@ -94,16 +98,6 @@ def _normalise_idempotency_key(value, field_name="idempotency_key"):
 def _normalise_payment_entries(entries):
     """
     Validate and normalise a collection of payment tender lines.
-
-    Expected format:
-    [
-        {"method": "CASH", "amount": "500.00"},
-        {
-            "method": "MPESA",
-            "amount": "300.00",
-            "reference": "ABC123XYZ",
-        },
-    ]
     """
     if not isinstance(entries, (list, tuple)) or not entries:
         raise ValidationError({
@@ -181,10 +175,7 @@ def _normalise_payment_entries(entries):
 
 
 def _normalise_reversal_amount(amount):
-    try:
-        value = to_decimal(amount, "amount")
-    except ValidationError:
-        raise
+    value = to_decimal(amount, "amount")
 
     if value <= ZERO:
         raise ValidationError({
@@ -281,6 +272,168 @@ def _get_effective_tax_configuration(branch, issue_date):
     return configuration
 
 
+def _allocate_commission_base_equally(total_amount, assignments):
+    """
+    Split a service's commission base equally among its cleaner
+    assignments.
+
+    All calculations use integer cents. Any remainder cents are
+    allocated to assignments in ascending primary-key order.
+    """
+    ordered_assignments = sorted(
+        assignments,
+        key=lambda assignment: assignment.pk,
+    )
+
+    if not ordered_assignments:
+        return {}
+
+    total_cents = int(money(total_amount) * 100)
+    cleaner_count = len(ordered_assignments)
+
+    base_cents = total_cents // cleaner_count
+    remainder_cents = total_cents % cleaner_count
+
+    allocations = {}
+
+    for index, assignment in enumerate(ordered_assignments):
+        allocated_cents = base_cents
+
+        if index < remainder_cents:
+            allocated_cents += 1
+
+        allocations[assignment.pk] = (
+            Decimal(allocated_cents) / Decimal("100")
+        )
+
+    return allocations
+
+
+def _generate_cleaner_commissions(
+    *,
+    invoice,
+    invoice_lines,
+    assignments_by_service,
+    branch,
+):
+    """
+    Generate immutable cleaner commission records for an invoice.
+
+    Only CLEANER assignments qualify. DETAILER assignments are
+    deliberately excluded.
+
+    Commission is based on the invoice line's commission base,
+    which excludes bargaining discounts but is not reduced by
+    loyalty discounts.
+
+    This function must run inside the transaction that completes
+    the visit and creates the invoice.
+    """
+    invoice_lines_by_service = {
+        line.visit_service_id: line
+        for line in invoice_lines
+    }
+
+    for service_id, service_assignments in assignments_by_service.items():
+        cleaner_assignments = []
+
+        for assignment in service_assignments:
+            staff_role = assignment.staff.user.role
+
+            if staff_role != "CLEANER":
+                continue
+
+            if assignment.shift not in COMMISSION_RATES:
+                raise ValidationError({
+                    "assignments": (
+                        f"Cleaner assignment {assignment.pk} has no valid "
+                        "DAY or NIGHT shift. Correct the assigned shift "
+                        "before completing this visit."
+                    )
+                })
+
+            cleaner_assignments.append(assignment)
+
+        # A service assigned only to DETAILERs has no cleaner commission.
+        if not cleaner_assignments:
+            continue
+
+        invoice_line = invoice_lines_by_service.get(service_id)
+
+        if invoice_line is None:
+            raise ValidationError({
+                "invoice": (
+                    "A commission-eligible service has no corresponding "
+                    "invoice line."
+                )
+            })
+
+        full_commission_base = money(
+            invoice_line.commission_base_amount
+        )
+
+        allocations = _allocate_commission_base_equally(
+            full_commission_base,
+            cleaner_assignments,
+        )
+
+        commission_details = []
+
+        for assignment in sorted(
+            cleaner_assignments,
+            key=lambda item: item.pk,
+        ):
+            rate = COMMISSION_RATES[assignment.shift]
+            allocated_base = allocations[assignment.pk]
+
+            earned_amount = money(
+                allocated_base * rate / Decimal("100")
+            )
+
+            commission_details.append({
+                "assignment": assignment,
+                "rate": rate,
+                "allocated_base": allocated_base,
+                "earned_amount": earned_amount,
+            })
+
+        service_commission_total = money(
+            sum(
+                (
+                    item["earned_amount"]
+                    for item in commission_details
+                ),
+                ZERO,
+            )
+        )
+
+        for item in commission_details:
+            assignment = item["assignment"]
+            staff = assignment.staff
+
+            commission = CleanerCommission(
+                assignment=assignment,
+                invoice_line=invoice_line,
+                visit=invoice.visit,
+                visit_service=invoice_line.visit_service,
+                staff=staff,
+                branch=branch,
+                staff_number=staff.staff_number,
+                service_name=invoice_line.service_name,
+                shift=assignment.shift,
+                rate_percent=item["rate"],
+                commission_base_amount=full_commission_base,
+                allocated_commission_base_amount=(
+                    item["allocated_base"]
+                ),
+                service_commission_amount=service_commission_total,
+                earned_amount=item["earned_amount"],
+            )
+
+            commission.full_clean()
+            commission.save()
+
+
 # ---------------------------------------------------------------------
 # Invoice payment calculations
 # ---------------------------------------------------------------------
@@ -367,7 +520,7 @@ def get_invoice_payment_summary(invoice):
 
 
 # ---------------------------------------------------------------------
-# Visit completion and invoice generation
+# Visit completion, invoice and commission generation
 # ---------------------------------------------------------------------
 
 @transaction.atomic
@@ -380,9 +533,13 @@ def complete_visit_and_generate_invoice(
     loyalty_discounts=None,
 ):
     """
-    Complete a visit and issue its invoice atomically.
+    Complete a visit, issue its invoice and generate cleaner
+    commissions atomically.
 
     Payment collection is deliberately separate.
+
+    If invoice creation or commission generation fails, the entire
+    transaction is rolled back.
     """
 
     visit = (
@@ -612,8 +769,10 @@ def complete_visit_and_generate_invoice(
     invoice.full_clean()
     invoice.save()
 
+    invoice_lines = []
+
     for line_data in calculation["lines"]:
-        InvoiceLine.objects.create(
+        invoice_line = InvoiceLine.objects.create(
             invoice=invoice,
             visit_service=line_data["visit_service"],
             service_name=line_data["service_name"],
@@ -634,6 +793,17 @@ def complete_visit_and_generate_invoice(
             ),
             zero_price_reason=line_data["zero_price_reason"],
         )
+
+        invoice_lines.append(invoice_line)
+
+    # Commission generation is part of this same atomic transaction.
+    # It uses invoice-line snapshots, not customer payment records.
+    _generate_cleaner_commissions(
+        invoice=invoice,
+        invoice_lines=invoice_lines,
+        assignments_by_service=assignments_by_service,
+        branch=branch,
+    )
 
     visit.status = Visit.Status.COMPLETED
     visit.completed_at = issue_datetime
@@ -668,28 +838,11 @@ def record_payment_collection(
 
     The invoice is locked before balance validation so simultaneous
     collections cannot overpay it.
-
-    Example:
-
-        record_payment_collection(
-            invoice_id=12,
-            user=request.user,
-            payments=[
-                {"method": "CASH", "amount": "500.00"},
-                {
-                    "method": "MPESA",
-                    "amount": "300.00",
-                    "reference": "ABC123XYZ",
-                },
-            ],
-            idempotency_key="a-valid-client-generated-uuid",
-        )
     """
 
     key = _normalise_idempotency_key(idempotency_key)
     normalised_entries = _normalise_payment_entries(payments)
 
-    # Fast idempotency check for an already completed request.
     existing = (
         PaymentCollection.objects
         .filter(idempotency_key=key)
@@ -723,7 +876,6 @@ def record_payment_collection(
 
         return existing
 
-    # Lock the invoice to serialize payment collections and reversals.
     invoice = (
         Invoice.objects
         .select_for_update()
@@ -736,7 +888,6 @@ def record_payment_collection(
             "invoice": "The requested invoice does not exist."
         })
 
-    # Recheck after acquiring the invoice lock.
     existing = (
         PaymentCollection.objects
         .filter(idempotency_key=key)
@@ -813,7 +964,6 @@ def record_payment_collection(
             )
         })
 
-    # Lock the branch row to serialize receipt numbering.
     branch = (
         Branch.objects
         .select_for_update()
@@ -873,9 +1023,6 @@ def reverse_payment(
 
     Multiple partial reversals are allowed provided their combined
     amount does not exceed the original payment.
-
-    Reversing a payment recalculates the invoice's outstanding balance
-    and payment status.
     """
 
     key = _normalise_idempotency_key(idempotency_key)
@@ -892,7 +1039,6 @@ def reverse_payment(
             "reason": "The reversal reason cannot exceed 255 characters."
         })
 
-    # Idempotency check.
     existing_reversal = (
         PaymentReversal.objects
         .filter(idempotency_key=key)
@@ -914,7 +1060,6 @@ def reverse_payment(
 
         return existing_reversal
 
-    # Obtain the invoice ID without locking through a nullable join.
     payment_reference = (
         PaymentEntry.objects
         .filter(pk=payment_entry_id)
@@ -931,8 +1076,6 @@ def reverse_payment(
 
     invoice_id = payment_reference["collection__invoice_id"]
 
-    # Lock invoice first. This follows the same lock order as
-    # payment collection and prevents concurrent balance changes.
     invoice = (
         Invoice.objects
         .select_for_update()
@@ -945,7 +1088,6 @@ def reverse_payment(
             "invoice": "The payment's invoice does not exist."
         })
 
-    # Recheck idempotency after obtaining the invoice lock.
     existing_reversal = (
         PaymentReversal.objects
         .filter(idempotency_key=key)

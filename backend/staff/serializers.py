@@ -391,6 +391,38 @@ class StaffRegistrationSerializer(serializers.ModelSerializer):
             )
 
         return value
+    def validate(self, attrs):
+        request = self.context.get('request')
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                'An authenticated user is required.'
+            )
+
+        if is_supervisor_actor(request.user):
+            supervisor_branch_id = get_supervisor_branch(
+                request.user
+            )
+
+            if attrs.get('role') != 'CLEANER':
+                raise PermissionDenied(
+                    'Supervisors may only register CLEANER staff.'
+                )
+
+            branch = attrs.get('branch')
+
+            if branch is None:
+                raise serializers.ValidationError({
+                    'branch': 'A branch is required.'
+                })
+
+            if branch.pk != supervisor_branch_id:
+                raise PermissionDenied(
+                    'Supervisors may only register cleaners '
+                    'in their assigned branch.'
+                )
+
+        return attrs
 
     def create(self, validated_data):
         shift = validated_data.pop('shift')

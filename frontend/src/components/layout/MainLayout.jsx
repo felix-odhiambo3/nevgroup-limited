@@ -14,6 +14,7 @@ const pageTitles = {
   '/my-attendance': 'My Attendance',
   '/check-in': 'Vehicle Check-in',
   '/monitor-assignments': 'Monitor Assignments',
+  '/invoices': 'Invoice Management',
 }
 
 export default function MainLayout() {
