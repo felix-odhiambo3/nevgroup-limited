@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -26,6 +27,7 @@ import { useAuth } from '../features/auth/AuthContext'
 
 import {
   getStaff,
+  getStaffMember,
   registerStaff,
   updateStaff,
   updateStaffStatus,
@@ -43,7 +45,6 @@ const getToday = () => {
   const year = today.getFullYear()
   const month = String(today.getMonth() + 1).padStart(2, '0')
   const day = String(today.getDate()).padStart(2, '0')
-
   return `${year}-${month}-${day}`
 }
 
@@ -85,7 +86,7 @@ function getErrorMessage(error) {
   const data = error.response?.data
 
   if (!data) {
-    return 'Unable to complete the request. Check your connection and try again.'
+    return error.message || 'Unable to complete the request. Check your connection and try again.'
   }
 
   if (typeof data === 'string') return data
@@ -102,16 +103,23 @@ function getErrorMessage(error) {
     .join('\n')
 }
 
-function SummaryCard({ label, value, description }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 mt-2">{value}</p>
-      {description && (
-        <p className="text-xs text-slate-500 mt-1">{description}</p>
-      )}
-    </div>
-  )
+function formatDateTime(value) {
+  if (!value) return 'Not available'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return value
+
+  return date.toLocaleString()
+}
+
+function formatRole(role) {
+  if (!role) return 'Not assigned'
+
+  return role
+    .toLowerCase()
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase())
 }
 
 function getStatusStyle(status) {
@@ -138,26 +146,14 @@ function getActionLabel(action) {
   return labels[action] || action
 }
 
-function formatDateTime(value) {
-  if (!value) return 'Not available'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) return value
-
-  return date.toLocaleString()
-}
-
-function formatRole(role) {
-  if (!role) return 'Not assigned'
-
-  return role
-    .toLowerCase()
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (character) => character.toUpperCase())
-}
-
-function Modal({ title, description, onClose, children, footer, maxWidth = 'max-w-xl' }) {
+function Modal({
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  maxWidth = 'max-w-xl',
+}) {
   return (
     <div
       className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6"
@@ -165,7 +161,9 @@ function Modal({ title, description, onClose, children, footer, maxWidth = 'max-
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className={`bg-white w-full ${maxWidth} max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden`}>
+      <div
+        className={`bg-white w-full ${maxWidth} max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden`}
+      >
         <div className="px-6 py-5 border-b border-slate-200 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">{title}</h2>
@@ -196,7 +194,14 @@ function Modal({ title, description, onClose, children, footer, maxWidth = 'max-
   )
 }
 
-function HistoryList({ items, loading, error, emptyTitle, emptyDescription, renderItem }) {
+function HistoryList({
+  items,
+  loading,
+  error,
+  emptyTitle,
+  emptyDescription,
+  renderItem,
+}) {
   if (loading) {
     return (
       <div className="py-8 text-center text-slate-500">
@@ -227,20 +232,42 @@ function HistoryList({ items, loading, error, emptyTitle, emptyDescription, rend
   return <div className="space-y-3">{items.map(renderItem)}</div>
 }
 
+function DetailField({ label, value }) {
+  if (value === undefined || value === null || value === '') return null
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-900">
+        {value}
+      </p>
+    </div>
+  )
+}
+
 export default function StaffPage() {
   const { user } = useAuth()
 
   const currentRole = user?.role
-  const canManageRoles = ['OWNER', 'ADMIN'].includes(currentRole)
-  const canManageAdminRole =
-    currentRole === 'OWNER' || Boolean(user?.is_superuser)
+  const isOwner = currentRole === 'OWNER' || Boolean(user?.is_superuser)
+  const isAdmin = currentRole === 'ADMIN' && !user?.is_superuser
+  const isSupervisor = currentRole === 'SUPERVISOR'
+
+  const canRegisterStaff = isOwner || isAdmin
+  const canManageStaff = isOwner || isAdmin || isSupervisor
+  const canViewDetails = canManageStaff
+  const canManageRoles = isOwner || isAdmin
+  const canManageAdminRole = isOwner
+  const canArchiveStaff = isOwner || isAdmin
 
   const [staff, setStaff] = useState([])
   const [branches, setBranches] = useState([])
 
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
-  const [branchesLoading, setBranchesLoading] = useState(true)
+  const [branchesLoading, setBranchesLoading] = useState(false)
 
   const [error, setError] = useState('')
   const [branchError, setBranchError] = useState('')
@@ -254,7 +281,11 @@ export default function StaffPage() {
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState(initialForm)
 
+  // Full details are fetched only after an authorized user requests them.
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsMember, setDetailsMember] = useState(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState('')
 
   const [editingMember, setEditingMember] = useState(null)
   const [editForm, setEditForm] = useState(initialEditForm)
@@ -308,7 +339,7 @@ export default function StaffPage() {
       if (status === 401) {
         setError('Your session has expired. Please sign in again.')
       } else if (status === 403) {
-        setError('You do not have permission to manage staff.')
+        setError('You do not have permission to view the staff directory.')
       } else {
         setError(getErrorMessage(err))
       }
@@ -333,8 +364,11 @@ export default function StaffPage() {
 
   useEffect(() => {
     loadStaff()
-    loadBranches()
-  }, [loadStaff, loadBranches])
+
+    if (canManageStaff) {
+      loadBranches()
+    }
+  }, [loadStaff, loadBranches, canManageStaff])
 
   const filteredStaff = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -344,13 +378,6 @@ export default function StaffPage() {
     return staff.filter((member) => {
       const searchableFields = [
         member.staff_number,
-        member.full_name,
-        member.username,
-        member.email,
-        member.phone_number,
-        member.branch_name,
-        member.role,
-        member.employment_status,
         member.current_shift,
       ]
 
@@ -359,18 +386,6 @@ export default function StaffPage() {
       )
     })
   }, [staff, search])
-
-  const activeCount = staff.filter(
-    (member) => member.employment_status === 'ACTIVE'
-  ).length
-
-  const inactiveCount = staff.filter(
-    (member) => member.employment_status === 'INACTIVE'
-  ).length
-
-  const suspendedCount = staff.filter(
-    (member) => member.employment_status === 'SUSPENDED'
-  ).length
 
   const updateField = (event) => {
     const { name, value } = event.target
@@ -390,7 +405,43 @@ export default function StaffPage() {
     }))
   }
 
+  const fetchFullStaffMember = async (member) => {
+    if (!member?.id) {
+      throw new Error('The selected staff record has no valid ID.')
+    }
+
+    return getStaffMember(member.id)
+  }
+
+  const openDetails = async (member) => {
+    if (!canViewDetails) return
+
+    setDetailsOpen(true)
+    setDetailsMember(null)
+    setDetailsError('')
+    setDetailsLoading(true)
+
+    try {
+      const data = await fetchFullStaffMember(member)
+      setDetailsMember(data)
+    } catch (err) {
+      setDetailsError(getErrorMessage(err))
+    } finally {
+      setDetailsLoading(false)
+    }
+  }
+
+  const closeDetails = () => {
+    if (detailsLoading) return
+
+    setDetailsOpen(false)
+    setDetailsMember(null)
+    setDetailsError('')
+  }
+
   const openRegistration = () => {
+    if (!canRegisterStaff) return
+
     setForm({
       ...initialForm,
       date_joined: getToday(),
@@ -414,6 +465,8 @@ export default function StaffPage() {
 
   const handleRegistration = async (event) => {
     event.preventDefault()
+
+    if (!canRegisterStaff) return
 
     setFormError('')
     setSuccessMessage('')
@@ -456,18 +509,27 @@ export default function StaffPage() {
     }
   }
 
-  const openEdit = (member) => {
-    setEditingMember(member)
-    setEditForm({
-      staff_number: member.staff_number || '',
-      branch: member.branch ? String(member.branch) : '',
-      phone_number: member.phone_number || '',
-      date_joined: member.date_joined || '',
-    })
+  const openEdit = async (member) => {
+    if (!canManageStaff) return
+
     setEditError('')
     setSuccessMessage('')
 
-    if (branches.length === 0) loadBranches()
+    try {
+      const fullMember = await fetchFullStaffMember(member)
+
+      setEditingMember(fullMember)
+      setEditForm({
+        staff_number: fullMember.staff_number || '',
+        branch: fullMember.branch ? String(fullMember.branch) : '',
+        phone_number: fullMember.phone_number || '',
+        date_joined: fullMember.date_joined || '',
+      })
+
+      if (branches.length === 0) loadBranches()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    }
   }
 
   const closeEdit = () => {
@@ -481,7 +543,7 @@ export default function StaffPage() {
   const handleEdit = async (event) => {
     event.preventDefault()
 
-    if (!editingMember) return
+    if (!editingMember || !canManageStaff) return
 
     setEditError('')
     setSuccessMessage('')
@@ -519,7 +581,11 @@ export default function StaffPage() {
       await updateStaff(editingMember.id, payload)
 
       setSuccessMessage('Staff profile updated successfully.')
-      closeEdit()
+
+      setEditingMember(null)
+      setEditForm(initialEditForm)
+      setEditError('')
+
       await loadStaff()
     } catch (err) {
       setEditError(getErrorMessage(err))
@@ -528,11 +594,20 @@ export default function StaffPage() {
     }
   }
 
-  const openStatusAction = (member, action) => {
-    setSelectedMember(member)
-    setPendingAction(action)
-    setActionReason('')
+  const openStatusManager = async (member) => {
+    if (!canManageStaff) return
+
     setActionError('')
+    setActionReason('')
+    setPendingAction('')
+    setSelectedMember(null)
+
+    try {
+      const fullMember = await fetchFullStaffMember(member)
+      setSelectedMember(fullMember)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    }
   }
 
   const closeStatusAction = () => {
@@ -547,13 +622,18 @@ export default function StaffPage() {
   const handleStatusAction = async (event) => {
     event.preventDefault()
 
-    if (!selectedMember || !pendingAction) return
+    if (!selectedMember || !pendingAction || !canManageStaff) return
 
     if (
       ['SUSPEND', 'DEACTIVATE', 'ARCHIVE'].includes(pendingAction) &&
       !actionReason.trim()
     ) {
       setActionError('Please provide a reason for this action.')
+      return
+    }
+
+    if (pendingAction === 'ARCHIVE' && !canArchiveStaff) {
+      setActionError('Only ADMIN or OWNER users can archive staff records.')
       return
     }
 
@@ -576,7 +656,11 @@ export default function StaffPage() {
 
       setSuccessMessage(response.detail || messages[pendingAction])
 
-      closeStatusAction()
+      setSelectedMember(null)
+      setPendingAction('')
+      setActionReason('')
+      setActionError('')
+
       await loadStaff()
     } catch (err) {
       setActionError(getErrorMessage(err))
@@ -610,6 +694,8 @@ export default function StaffPage() {
   // ---------------- ROLE MANAGEMENT ----------------
 
   const openRoleManagement = () => {
+    if (!canManageRoles) return
+
     setShowRoleManagement(true)
     setRoleMember(null)
     setRoleHistory([])
@@ -632,8 +718,8 @@ export default function StaffPage() {
   }
 
   const selectRoleMember = async (member) => {
-    setRoleMember(member)
-    setRoleValue(member.role || '')
+    setRoleMember(null)
+    setRoleValue('')
     setRoleReason('')
     setRoleError('')
     setRoleHistory([])
@@ -641,16 +727,19 @@ export default function StaffPage() {
     setRoleHistoryLoading(true)
 
     try {
-      if (!member.user) {
+      const fullMember = await fetchFullStaffMember(member)
+
+      if (!fullMember.user) {
         throw new Error('This staff profile does not contain a linked user ID.')
       }
 
-      const data = await getStaffRoleHistory(member.user)
+      setRoleMember(fullMember)
+      setRoleValue(fullMember.role || '')
+
+      const data = await getStaffRoleHistory(fullMember.user)
       setRoleHistory(data)
     } catch (err) {
-      setRoleHistoryError(
-        err.message || getErrorMessage(err)
-      )
+      setRoleHistoryError(getErrorMessage(err))
     } finally {
       setRoleHistoryLoading(false)
     }
@@ -659,7 +748,7 @@ export default function StaffPage() {
   const handleRoleChange = async (event) => {
     event.preventDefault()
 
-    if (!roleMember) return
+    if (!roleMember || !canManageRoles) return
 
     setRoleError('')
 
@@ -697,7 +786,7 @@ export default function StaffPage() {
       })
 
       setSuccessMessage(
-        `Role updated successfully for ${roleMember.full_name || roleMember.username}.`
+        `Role updated successfully for staff number ${roleMember.staff_number}.`
       )
 
       setRoleReason('')
@@ -722,6 +811,8 @@ export default function StaffPage() {
   // ---------------- SHIFT MANAGEMENT ----------------
 
   const openShiftManagement = () => {
+    if (!canManageStaff) return
+
     setShowShiftManagement(true)
     setShiftMember(null)
     setShiftHistory([])
@@ -745,17 +836,21 @@ export default function StaffPage() {
   }
 
   const selectShiftMember = async (member) => {
-    setShiftMember(member)
-    setShiftValue(member.current_shift || 'DAY')
-    setShiftEffectiveFrom(getToday())
-    setShiftReason('')
+    setShiftMember(null)
     setShiftError('')
     setShiftHistory([])
     setShiftHistoryError('')
     setShiftHistoryLoading(true)
 
     try {
-      const data = await getStaffShiftHistory(member.id)
+      const fullMember = await fetchFullStaffMember(member)
+
+      setShiftMember(fullMember)
+      setShiftValue(fullMember.current_shift || 'DAY')
+      setShiftEffectiveFrom(getToday())
+      setShiftReason('')
+
+      const data = await getStaffShiftHistory(fullMember.id)
       setShiftHistory(data)
     } catch (err) {
       setShiftHistoryError(getErrorMessage(err))
@@ -767,7 +862,7 @@ export default function StaffPage() {
   const handleShiftChange = async (event) => {
     event.preventDefault()
 
-    if (!shiftMember) return
+    if (!shiftMember || !canManageStaff) return
 
     setShiftError('')
 
@@ -801,7 +896,7 @@ export default function StaffPage() {
       })
 
       setSuccessMessage(
-        `Shift updated successfully for ${shiftMember.full_name || shiftMember.username}.`
+        `Shift updated successfully for staff number ${shiftMember.staff_number}.`
       )
 
       setShiftReason('')
@@ -852,7 +947,7 @@ export default function StaffPage() {
     ARCHIVE: {
       title: 'Archive Staff Account',
       description:
-        'This will archive the employee record, disable login access and remove the employee from the normal staff directory. This action should be used when the record should no longer be active.',
+        'This will archive the employee record, disable login access and remove the employee from the normal staff directory.',
       button: 'Confirm Archive',
       buttonClass: 'bg-red-700 hover:bg-red-800',
       icon: <Archive size={20} />,
@@ -862,16 +957,8 @@ export default function StaffPage() {
 
   const currentAction = actionDetails[pendingAction]
 
-  const manageableRoleMembers = staff.filter(
-    (member) =>
-      member.role !== 'OWNER' &&
-      member.user &&
-      member.employment_status !== 'ARCHIVED'
-  )
-
-  const shiftMembers = staff.filter(
-    (member) => member.employment_status !== 'ARCHIVED'
-  )
+  const manageableRoleMembers = staff
+  const shiftMembers = staff
 
   return (
     <div className="space-y-7">
@@ -892,16 +979,17 @@ export default function StaffPage() {
           </div>
         </div>
 
-        {/* Four separate management buttons */}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={openRegistration}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
-          >
-            <UserPlus size={18} />
-            Register Staff
-          </button>
+          {canRegisterStaff && (
+            <button
+              type="button"
+              onClick={openRegistration}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+            >
+              <UserPlus size={18} />
+              Register Staff
+            </button>
+          )}
 
           <button
             type="button"
@@ -925,18 +1013,19 @@ export default function StaffPage() {
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={openShiftManagement}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold transition-colors"
-          >
-            <CalendarClock size={18} />
-            Manage Shifts
-          </button>
+          {canManageStaff && (
+            <button
+              type="button"
+              onClick={openShiftManagement}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold transition-colors"
+            >
+              <CalendarClock size={18} />
+              Manage Shifts
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Success message */}
       {successMessage && (
         <div
           role="status"
@@ -946,16 +1035,27 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <SummaryCard label="Total Staff" value={staff.length} />
-        <SummaryCard label="Active" value={activeCount} />
-        <SummaryCard label="Inactive" value={inactiveCount} />
-        <SummaryCard
-          label="Suspended"
-          value={suspendedCount}
-          description="Login access disabled"
-        />
+      {/* The directory endpoint intentionally exposes only minimal fields. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <p className="text-sm text-slate-500">Staff Directory Records</p>
+          <p className="text-2xl font-bold text-slate-900 mt-2">
+            {staff.length}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Personal details are protected and are not displayed by default.
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <p className="text-sm text-slate-500">Privacy</p>
+          <p className="text-lg font-bold text-slate-900 mt-2">
+            Limited Directory View
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Staff number and assigned shift are shown in the directory.
+          </p>
+        </div>
       </div>
 
       {/* Staff directory */}
@@ -966,11 +1066,9 @@ export default function StaffPage() {
         >
           <div className="p-5 border-b border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h2 className="font-semibold text-slate-900">
-                Staff Directory
-              </h2>
+              <h2 className="font-semibold text-slate-900">Staff Directory</h2>
               <p className="text-sm text-slate-500 mt-1">
-                View and manage employee records and account access.
+                The default directory shows only staff number and assigned shift.
               </p>
             </div>
 
@@ -984,7 +1082,7 @@ export default function StaffPage() {
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search staff..."
+                  placeholder="Search staff number or shift..."
                   className={`${inputClass} sm:w-64 pl-10`}
                 />
               </div>
@@ -1035,8 +1133,8 @@ export default function StaffPage() {
               </p>
               <p className="text-sm text-slate-500 mt-1">
                 {search
-                  ? 'Try another search term.'
-                  : 'Register your first employee to get started.'}
+                  ? 'Try another staff number or shift.'
+                  : 'There are currently no staff records to display.'}
               </p>
             </div>
           ) : !error ? (
@@ -1045,61 +1143,39 @@ export default function StaffPage() {
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-4">Staff Number</th>
-                    <th className="px-5 py-4">Branch</th>
-                    <th className="px-5 py-4">Role</th>
-                    <th className="px-5 py-4">Status</th>
-                    <th className="px-5 py-4">Account Management</th>
+                    <th className="px-5 py-4">Assigned Shift</th>
+                    <th className="px-5 py-4">Actions</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {filteredStaff.map((member) => {
-                    const active = member.employment_status === 'ACTIVE'
-                    const suspended = member.employment_status === 'SUSPENDED'
-                    const inactive = member.employment_status === 'INACTIVE'
-                    const isOwnerAccount = member.role === 'OWNER'
+                  {filteredStaff.map((member) => (
+                    <tr key={member.id} className="hover:bg-slate-50 align-top">
+                      <td className="px-5 py-4 text-sm font-semibold text-slate-800">
+                        {member.staff_number || 'Not assigned'}
+                      </td>
 
-                    return (
-                      <tr key={member.id} className="hover:bg-slate-50 align-top">
-                        <td className="px-5 py-4 text-sm font-medium text-slate-800">
-                          {member.staff_number || 'Not assigned'}
-                        </td>
+                      <td className="px-5 py-4 text-sm text-slate-700">
+                        <span className="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
+                          {member.current_shift || 'Not assigned'}
+                        </span>
+                      </td>
 
-                        <td className="px-5 py-4 text-sm text-slate-700">
-                          {member.branch_name || 'Not assigned'}
-                        </td>
-
-                        <td className="px-5 py-4 text-sm text-slate-700">
-                          {formatRole(member.role)}
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <div className="space-y-1">
-                            <span
-                              className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusStyle(member.employment_status)}`}
-                            >
-                              {member.employment_status}
-                            </span>
-                            <p className="text-xs text-slate-500">
-                              {active
-                                ? 'Login expected enabled'
-                                : 'Login disabled'}
-                            </p>
-                          </div>
-                        </td>
-
-                        <td className="px-5 py-4 min-w-[280px]">
-                          <div className="flex flex-wrap gap-2">
+                      <td className="px-5 py-4 min-w-[250px]">
+                        <div className="flex flex-wrap gap-2">
+                          {canViewDetails && (
                             <button
                               type="button"
-                              onClick={() => setDetailsMember(member)}
+                              onClick={() => openDetails(member)}
                               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold"
                             >
                               <Eye size={14} />
                               View Full Details
                             </button>
+                          )}
 
-                            {!isOwnerAccount && (
+                          {canManageStaff && (
+                            <>
                               <button
                                 type="button"
                                 onClick={() => openEdit(member)}
@@ -1108,65 +1184,30 @@ export default function StaffPage() {
                                 <Pencil size={14} />
                                 Edit
                               </button>
-                            )}
 
-                            {active && !isOwnerAccount && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'SUSPEND')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold"
-                                >
-                                  <ShieldAlert size={14} />
-                                  Suspend
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'DEACTIVATE')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold"
-                                >
-                                  <UserX size={14} />
-                                  Deactivate
-                                </button>
-                              </>
-                            )}
-
-                            {(inactive || suspended) && !isOwnerAccount && (
                               <button
                                 type="button"
-                                onClick={() => openStatusAction(member, 'ACTIVATE')}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 text-xs font-semibold"
+                                onClick={() => openStatusManager(member)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold"
                               >
-                                <CheckCircle2 size={14} />
-                                {suspended ? 'Reactivate' : 'Activate'}
+                                <ShieldAlert size={14} />
+                                Account Status
                               </button>
-                            )}
 
-                            {!isOwnerAccount && (
                               <button
                                 type="button"
-                                onClick={() => openStatusAction(member, 'ARCHIVE')}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-semibold"
+                                onClick={() => openHistory(member)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-semibold"
                               >
-                                <Archive size={14} />
-                                Archive
+                                <History size={14} />
+                                History
                               </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => openHistory(member)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold"
-                            >
-                              <History size={14} />
-                              History
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1181,52 +1222,62 @@ export default function StaffPage() {
       )}
 
       {/* Full staff details modal */}
-      {detailsMember && (
+      {detailsOpen && (
         <Modal
           title="Full Staff Details"
-          description={`Complete available profile for ${detailsMember.full_name || detailsMember.username || detailsMember.staff_number}.`}
-          onClose={() => setDetailsMember(null)}
+          description={
+            detailsMember
+              ? `Complete available profile for staff number ${detailsMember.staff_number}.`
+              : 'Retrieving the authorized staff profile.'
+          }
+          onClose={closeDetails}
           maxWidth="max-w-3xl"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[
-              ['Full Name', detailsMember.full_name],
-              ['Username', detailsMember.username],
-              ['Email Address', detailsMember.email],
-              ['Phone Number', detailsMember.phone_number],
-              ['Staff Number', detailsMember.staff_number],
-              ['Branch', detailsMember.branch_name],
-              ['Role', formatRole(detailsMember.role)],
-              ['Employment Status', detailsMember.employment_status],
-              ['Assigned Shift', detailsMember.current_shift],
-              ['Date Joined', detailsMember.date_joined],
-              ['Archived', detailsMember.is_archived === true ? 'Yes' : detailsMember.is_archived === false ? 'No' : null],
-            ]
-              .filter(([, value]) => value !== undefined && value !== null && value !== '')
-              .map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
-                >
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    {label}
-                  </p>
-                  <p className="mt-1 break-words text-sm font-semibold text-slate-900">
-                    {value}
-                  </p>
-                </div>
-              ))}
-          </div>
+          {detailsLoading ? (
+            <div className="py-10 text-center text-slate-500">
+              <RefreshCw size={25} className="animate-spin mx-auto mb-3" />
+              Loading full staff details...
+            </div>
+          ) : detailsError ? (
+            <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 whitespace-pre-line">
+              {detailsError}
+            </div>
+          ) : detailsMember ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <DetailField label="Full Name" value={detailsMember.full_name} />
+                <DetailField label="Username" value={detailsMember.username} />
+                <DetailField label="Email Address" value={detailsMember.email} />
+                <DetailField label="Phone Number" value={detailsMember.phone_number} />
+                <DetailField label="Staff Number" value={detailsMember.staff_number} />
+                <DetailField label="Branch" value={detailsMember.branch_name} />
+                <DetailField label="Role" value={formatRole(detailsMember.role)} />
+                <DetailField label="Employment Status" value={detailsMember.employment_status} />
+                <DetailField label="Assigned Shift" value={detailsMember.current_shift} />
+                <DetailField label="Date Joined" value={detailsMember.date_joined} />
+                <DetailField
+                  label="Archived"
+                  value={
+                    detailsMember.is_archived === true
+                      ? 'Yes'
+                      : detailsMember.is_archived === false
+                        ? 'No'
+                        : null
+                  }
+                />
+              </div>
 
-          <div className="mt-5 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setDetailsMember(null)}
-              className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Close
-            </button>
-          </div>
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={closeDetails}
+                  className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          ) : null}
         </Modal>
       )}
 
@@ -1234,7 +1285,7 @@ export default function StaffPage() {
       {editingMember && (
         <Modal
           title="Edit Staff Profile"
-          description={`Update profile details for ${editingMember.full_name || editingMember.username}.`}
+          description={`Update profile details for staff number ${editingMember.staff_number}.`}
           onClose={closeEdit}
           footer={
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
@@ -1368,7 +1419,7 @@ export default function StaffPage() {
       )}
 
       {/* Role management modal */}
-      {showRoleManagement && (
+      {showRoleManagement && canManageRoles && (
         <Modal
           title="Manage Staff Roles"
           description="Change an employee's system role. Every role change requires a reason and is recorded in the audit history."
@@ -1389,26 +1440,31 @@ export default function StaffPage() {
                       (item) => String(item.id) === event.target.value
                     )
                     if (member) selectRoleMember(member)
+                    else setRoleMember(null)
                   }}
                   className={inputClass}
                 >
                   <option value="">Choose an employee</option>
                   {manageableRoleMembers.map((member) => (
                     <option key={member.id} value={member.id}>
-                      {member.full_name || member.username} — {member.staff_number}
+                      {member.staff_number || 'Staff number unavailable'}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {roleHistoryLoading && !roleMember && (
+                <div className="py-5 text-center text-slate-500">
+                  <RefreshCw size={20} className="animate-spin mx-auto mb-2" />
+                  Loading selected staff profile...
+                </div>
+              )}
+
               {roleMember && (
                 <form onSubmit={handleRoleChange} className="space-y-4">
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                     <p className="font-semibold text-slate-900">
-                      {roleMember.full_name || roleMember.username}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {roleMember.staff_number} · {roleMember.email}
+                      Staff Number: {roleMember.staff_number}
                     </p>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-500">Current role</span>
@@ -1436,8 +1492,9 @@ export default function StaffPage() {
                       required
                     >
                       {roleOptions
-                        .filter((option) =>
-                          option.value !== 'ADMIN' || canManageAdminRole
+                        .filter(
+                          (option) =>
+                            option.value !== 'ADMIN' || canManageAdminRole
                         )
                         .map((option) => (
                           <option key={option.value} value={option.value}>
@@ -1499,7 +1556,7 @@ export default function StaffPage() {
                 </form>
               )}
 
-              {!roleMember && (
+              {!roleMember && !roleHistoryLoading && (
                 <div className="p-8 text-center border border-dashed border-slate-300 rounded-xl">
                   <Users size={30} className="mx-auto text-slate-300 mb-3" />
                   <p className="font-medium text-slate-700">
@@ -1538,7 +1595,7 @@ export default function StaffPage() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-slate-900">
-                          {formatRole(item.previous_role)} → {formatRole(item.new_role)}
+                          {formatRole(item.previous_role)} ΓåÆ {formatRole(item.new_role)}
                         </span>
                         <span className="text-xs text-slate-500 flex items-center gap-1">
                           <Clock size={12} />
@@ -1565,7 +1622,7 @@ export default function StaffPage() {
       )}
 
       {/* Shift management modal */}
-      {showShiftManagement && (
+      {showShiftManagement && canManageStaff && (
         <Modal
           title="Manage Staff Shifts"
           description="Assign DAY or NIGHT shifts with an effective date. Changes are recorded in the employee's shift history."
@@ -1586,26 +1643,31 @@ export default function StaffPage() {
                       (item) => String(item.id) === event.target.value
                     )
                     if (member) selectShiftMember(member)
+                    else setShiftMember(null)
                   }}
                   className={inputClass}
                 >
                   <option value="">Choose an employee</option>
                   {shiftMembers.map((member) => (
                     <option key={member.id} value={member.id}>
-                      {member.full_name || member.username} — {member.staff_number}
+                      {member.staff_number || 'Staff number unavailable'}
                     </option>
                   ))}
                 </select>
               </div>
 
+              {shiftHistoryLoading && !shiftMember && (
+                <div className="py-5 text-center text-slate-500">
+                  <RefreshCw size={20} className="animate-spin mx-auto mb-2" />
+                  Loading selected staff profile...
+                </div>
+              )}
+
               {shiftMember && (
                 <form onSubmit={handleShiftChange} className="space-y-4">
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                     <p className="font-semibold text-slate-900">
-                      {shiftMember.full_name || shiftMember.username}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {shiftMember.staff_number} · {shiftMember.branch_name || 'No branch'}
+                      Staff Number: {shiftMember.staff_number}
                     </p>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-500">Current shift</span>
@@ -1704,7 +1766,7 @@ export default function StaffPage() {
                 </form>
               )}
 
-              {!shiftMember && (
+              {!shiftMember && !shiftHistoryLoading && (
                 <div className="p-8 text-center border border-dashed border-slate-300 rounded-xl">
                   <CalendarClock size={30} className="mx-auto text-slate-300 mb-3" />
                   <p className="font-medium text-slate-700">
@@ -1774,7 +1836,7 @@ export default function StaffPage() {
       )}
 
       {/* Registration modal */}
-      {showModal && (
+      {showModal && canRegisterStaff && (
         <div
           className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3 sm:p-6"
           onMouseDown={(event) => {
@@ -2102,94 +2164,180 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Account status confirmation modal */}
-      {selectedMember && currentAction && (
+      {/* Account status management modal */}
+      {selectedMember && (
         <Modal
-          title={currentAction.title}
-          description={`${selectedMember.full_name || selectedMember.username} · ${selectedMember.staff_number}`}
+          title={currentAction ? currentAction.title : 'Manage Account Status'}
+          description={`Staff Number: ${selectedMember.staff_number}`}
           onClose={closeStatusAction}
           footer={
-            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
-              <button
-                type="button"
-                onClick={closeStatusAction}
-                disabled={actionLoading}
-                className="px-5 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
-              >
-                Cancel
-              </button>
+            currentAction ? (
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingAction('')
+                    setActionReason('')
+                    setActionError('')
+                  }}
+                  disabled={actionLoading}
+                  className="px-5 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-white disabled:opacity-50"
+                >
+                  Back
+                </button>
 
-              <button
-                type="submit"
-                form="staff-status-action-form"
-                disabled={actionLoading}
-                className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-50 ${currentAction.buttonClass}`}
-              >
-                {actionLoading ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    {currentAction.icon}
-                    {currentAction.button}
-                  </>
-                )}
-              </button>
-            </div>
+                <button
+                  type="submit"
+                  form="staff-status-action-form"
+                  disabled={actionLoading}
+                  className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-50 ${currentAction.buttonClass}`}
+                >
+                  {actionLoading ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      {currentAction.icon}
+                      {currentAction.button}
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : null
           }
         >
-          <form
-            id="staff-status-action-form"
-            onSubmit={handleStatusAction}
-            className="space-y-4"
-          >
-            <p className="text-sm text-slate-600">
-              {currentAction.description}
-            </p>
+          {!currentAction ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex justify-between gap-3 text-sm">
+                  <span className="text-slate-500">Current status</span>
+                  <span
+                    className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusStyle(selectedMember.employment_status)}`}
+                  >
+                    {selectedMember.employment_status}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3 text-sm">
+                  <span className="text-slate-500">Staff number</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMember.staff_number}
+                  </span>
+                </div>
+              </div>
 
-            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
-              <div className="flex justify-between gap-3 text-sm">
-                <span className="text-slate-500">Current status</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMember.employment_status}
-                </span>
+              <p className="text-sm text-slate-600">
+                Choose the account action to perform. The action will be recorded in the staff history.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {selectedMember.employment_status === 'ACTIVE' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAction('SUSPEND')}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 px-4 py-3 text-sm font-semibold"
+                    >
+                      <ShieldAlert size={17} />
+                      Suspend
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAction('DEACTIVATE')}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <UserX size={17} />
+                      Deactivate
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPendingAction('ACTIVATE')}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 px-4 py-3 text-sm font-semibold"
+                  >
+                    <CheckCircle2 size={17} />
+                    Activate / Reactivate
+                  </button>
+                )}
+
+                {canArchiveStaff && !selectedMember.is_archived && (
+                  <button
+                    type="button"
+                    onClick={() => setPendingAction('ARCHIVE')}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-orange-50 text-orange-700 hover:bg-orange-100 px-4 py-3 text-sm font-semibold"
+                  >
+                    <Archive size={17} />
+                    Archive
+                  </button>
+                )}
               </div>
-              <div className="flex justify-between gap-3 text-sm mt-2">
-                <span className="text-slate-500">Staff number</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMember.staff_number}
-                </span>
-              </div>
+
+              {isSupervisor && (
+                <p className="text-xs text-slate-500">
+                  Supervisors may manage authorized cleaner accounts but cannot archive staff records.
+                </p>
+              )}
+
+              {selectedMember.is_archived && (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  This staff record is already archived.
+                </p>
+              )}
             </div>
+          ) : (
+            <form
+              id="staff-status-action-form"
+              onSubmit={handleStatusAction}
+              className="space-y-4"
+            >
+              <p className="text-sm text-slate-600">
+                {currentAction.description}
+              </p>
 
-            {currentAction.requiresReason && (
-              <div>
-                <label htmlFor="action_reason" className={labelClass}>
-                  Reason *
-                </label>
-                <textarea
-                  id="action_reason"
-                  value={actionReason}
-                  onChange={(event) => setActionReason(event.target.value)}
-                  className={`${inputClass} min-h-28 resize-y`}
-                  placeholder="Enter the reason for this action..."
-                  maxLength={2000}
-                  required
-                />
+              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="flex justify-between gap-3 text-sm">
+                  <span className="text-slate-500">Current status</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMember.employment_status}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3 text-sm mt-2">
+                  <span className="text-slate-500">Staff number</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMember.staff_number}
+                  </span>
+                </div>
               </div>
-            )}
 
-            {actionError && (
-              <div
-                role="alert"
-                className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 whitespace-pre-line"
-              >
-                {actionError}
-              </div>
-            )}
-          </form>
+              {currentAction.requiresReason && (
+                <div>
+                  <label htmlFor="action_reason" className={labelClass}>
+                    Reason *
+                  </label>
+                  <textarea
+                    id="action_reason"
+                    value={actionReason}
+                    onChange={(event) => setActionReason(event.target.value)}
+                    className={`${inputClass} min-h-28 resize-y`}
+                    placeholder="Enter the reason for this action..."
+                    maxLength={2000}
+                    required
+                  />
+                </div>
+              )}
+
+              {actionError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 whitespace-pre-line"
+                >
+                  {actionError}
+                </div>
+              )}
+            </form>
+          )}
         </Modal>
       )}
 
@@ -2197,7 +2345,7 @@ export default function StaffPage() {
       {historyMember && (
         <Modal
           title="Staff Account History"
-          description={`${historyMember.full_name || historyMember.username} · ${historyMember.staff_number}`}
+          description={`Staff Number: ${historyMember.staff_number}`}
           onClose={closeHistory}
         >
           <HistoryList

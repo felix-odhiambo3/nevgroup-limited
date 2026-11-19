@@ -28,7 +28,6 @@ import {
   getAttendanceOverrideAudit,
 } from '../api/attendance'
 
-import { getStaff } from '../api/staff'
 import { getBranchStaff } from '../api/staffOperations'
 
 const getToday = () => {
@@ -80,11 +79,11 @@ function getErrorMessage(error) {
 }
 
 function formatDateTime(value) {
-  if (!value) return '—'
+  if (!value) return 'ΓÇö'
 
   const date = new Date(value)
 
-  if (Number.isNaN(date.getTime())) return '—'
+  if (Number.isNaN(date.getTime())) return 'ΓÇö'
 
   return date.toLocaleString('en-KE', {
     dateStyle: 'medium',
@@ -93,11 +92,11 @@ function formatDateTime(value) {
 }
 
 function formatDate(value) {
-  if (!value) return '—'
+  if (!value) return 'ΓÇö'
 
   const date = new Date(`${value}T00:00:00`)
 
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime())) return 'ΓÇö'
 
   return date.toLocaleDateString('en-KE', {
     dateStyle: 'medium',
@@ -190,13 +189,10 @@ export default function AttendancePage() {
     setError('')
 
     try {
-      // Supervisors must use the branch-restricted staff endpoint.
-      // Admins and Owners retain access to the full staff endpoint.
-      const staffRequest =
-        role === 'SUPERVISOR' && !isSuperuser
-          ? getBranchStaff()
-          : getStaff()
-
+      // Use the operational branch-picker endpoint for all authorized
+      // attendance managers. It returns only the fields needed here:
+      // id, staff_number, role, employment_status and current_shift.
+      // The backend applies the user's branch and role restrictions.
       const [shiftData, overrideData, staffData] = await Promise.all([
         getShiftInstances(
           dateFilter ? { work_date: dateFilter } : {}
@@ -204,7 +200,7 @@ export default function AttendancePage() {
         getAttendanceOverrides(
           statusFilter ? { status: statusFilter } : {}
         ),
-        staffRequest,
+        getBranchStaff(),
       ])
 
       setShifts(shiftData)
@@ -225,7 +221,7 @@ export default function AttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [dateFilter, statusFilter, role, isSuperuser])
+  }, [dateFilter, statusFilter])
 
   useEffect(() => {
     loadData()
@@ -443,7 +439,7 @@ export default function AttendancePage() {
 
   const handleExecute = async (item) => {
     const confirmed = window.confirm(
-      `Execute the approved ${item.action.replace('_', ' ')} request for ${item.staff_full_name || item.staff_username}?`
+      `Execute the approved ${item.action.replace('_', ' ')} request for ${item.staff_number || 'this staff member'}?`
     )
 
     if (!confirmed) return
@@ -809,15 +805,7 @@ export default function AttendancePage() {
                   <tr key={item.id} className="hover:bg-slate-50 align-top">
                     <td className="px-5 py-4">
                       <p className="font-medium text-slate-900">
-                        {item.staff_full_name || item.staff_username}
-                      </p>
-
-                      <p className="text-xs text-slate-500 mt-1">
-                        {item.staff_number || item.staff_username}
-                      </p>
-
-                      <p className="text-xs text-slate-500 mt-1">
-                        {item.branch_name}
+                        {item.staff_number || 'Staff member'}
                       </p>
                     </td>
 
@@ -836,7 +824,7 @@ export default function AttendancePage() {
                     </td>
 
                     <td className="px-5 py-4 text-sm text-slate-700">
-                      {item.requested_by_username || '—'}
+                      {item.requested_by_username || 'ΓÇö'}
                     </td>
 
                     <td className="px-5 py-4">
@@ -945,7 +933,7 @@ export default function AttendancePage() {
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h3 className="font-semibold text-slate-900">
-                  Audit History — Request #{auditRequestId}
+                  Audit History ΓÇö Request #{auditRequestId}
                 </h3>
 
                 <p className="text-xs text-slate-500 mt-1">
@@ -1078,11 +1066,9 @@ export default function AttendancePage() {
 
                     {activeStaff.map((member) => (
                       <option key={member.id} value={member.id}>
-                        {member.full_name || member.username}
+                        {member.staff_number || 'Staff member'}
                         {' — '}
-                        {member.staff_number}
-                        {' — '}
-                        {member.branch_name}
+                        {member.current_shift || 'Shift not assigned'}
                       </option>
                     ))}
                   </select>
@@ -1119,11 +1105,11 @@ export default function AttendancePage() {
                     {shifts.map((shift) => (
                       <option key={shift.id} value={shift.id}>
                         {shift.branch_name}
-                        {' — '}
+                        {' ΓÇö '}
                         {shift.shift_type}
-                        {' — '}
+                        {' ΓÇö '}
                         {formatDate(shift.work_date)}
-                        {' — '}
+                        {' ΓÇö '}
                         {shift.status}
                       </option>
                     ))}
@@ -1290,8 +1276,8 @@ export default function AttendancePage() {
                 </h2>
 
                 <p className="text-sm text-slate-500 mt-1">
-                  Request #{reviewRequest.id} —{' '}
-                  {reviewRequest.staff_full_name || reviewRequest.staff_username}
+                  Request #{reviewRequest.id} ΓÇö{' '}
+                  {reviewRequest.staff_number || 'Staff member'}
                 </p>
               </div>
 

@@ -1,3 +1,4 @@
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -15,8 +16,84 @@ from .services import assign_staff_shift
 User = get_user_model()
 
 
-class StaffProfileSerializer(serializers.ModelSerializer):
+class CurrentShiftMixin:
+    def get_current_shift(self, obj):
+        today = timezone.localdate()
 
+        assignments = obj.shift_assignments.all()
+
+        current_assignments = [
+            assignment
+            for assignment in assignments
+            if (
+                assignment.effective_from <= today
+                and (
+                    assignment.effective_to is None
+                    or assignment.effective_to >= today
+                )
+            )
+        ]
+
+        if not current_assignments:
+            return None
+
+        current_assignment = max(
+            current_assignments,
+            key=lambda assignment: assignment.effective_from
+        )
+
+        return current_assignment.shift
+
+
+class StaffDirectorySerializer(
+    CurrentShiftMixin,
+    serializers.ModelSerializer
+):
+    current_shift = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffProfile
+        fields = [
+            'id',
+            'staff_number',
+            'current_shift',
+        ]
+        read_only_fields = fields
+
+
+class StaffAccountsDirectorySerializer(StaffDirectorySerializer):
+    """
+    Accounts users receive the same minimal directory information.
+    Personal contact and identity details are not exposed here.
+    """
+    pass
+
+
+class StaffBranchPickerSerializer(
+    CurrentShiftMixin,
+    serializers.ModelSerializer
+):
+    role = serializers.CharField(
+        source='user.role',
+        read_only=True
+    )
+
+    class Meta:
+        model = StaffProfile
+        fields = [
+            'id',
+            'staff_number',
+            'role',
+            'employment_status',
+            'current_shift',
+        ]
+        read_only_fields = fields
+
+
+class StaffProfileSerializer(
+    CurrentShiftMixin,
+    serializers.ModelSerializer
+):
     username = serializers.CharField(
         source='user.username',
         read_only=True
@@ -81,33 +158,6 @@ class StaffProfileSerializer(serializers.ModelSerializer):
 
     def get_full_name(self, obj):
         return obj.user.get_full_name()
-
-    def get_current_shift(self, obj):
-        today = timezone.localdate()
-
-        assignments = obj.shift_assignments.all()
-
-        current_assignments = [
-            assignment
-            for assignment in assignments
-            if (
-                assignment.effective_from <= today
-                and (
-                    assignment.effective_to is None
-                    or assignment.effective_to >= today
-                )
-            )
-        ]
-
-        if not current_assignments:
-            return None
-
-        current_assignment = max(
-            current_assignments,
-            key=lambda assignment: assignment.effective_from
-        )
-
-        return current_assignment.shift
 
 
 class ShiftAssignmentSerializer(serializers.ModelSerializer):

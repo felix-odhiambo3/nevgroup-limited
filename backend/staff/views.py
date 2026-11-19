@@ -1,3 +1,4 @@
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -14,6 +15,7 @@ from rest_framework.response import Response
 from accounts.permissions import (
     IsAdminOrOwner,
     IsSupervisor,
+    IsAccounts,
 )
 
 from .models import (
@@ -24,6 +26,9 @@ from .models import (
 
 from .serializers import (
     StaffProfileSerializer,
+    StaffDirectorySerializer,
+    StaffAccountsDirectorySerializer,
+    StaffBranchPickerSerializer,
     StaffRegistrationSerializer,
     ShiftAssignmentSerializer,
     ShiftChangeSerializer,
@@ -35,56 +40,63 @@ from .services import assign_staff_shift
 
 
 def is_admin_actor(user):
-    """
-    True only for a normal ADMIN account.
-
-    Superusers are not treated as ordinary ADMIN accounts.
-    """
     return (
         not user.is_superuser
         and getattr(user, 'role', None) == 'ADMIN'
     )
 
 
-def is_protected_owner_account(user):
-    """
-    OWNER and superuser accounts are protected from ADMIN management.
-    """
+def is_owner_or_superuser(user):
     return (
         user.is_superuser
         or getattr(user, 'role', None) == 'OWNER'
     )
 
 
-def ensure_staff_target_access(request, staff):
-    """
-    Prevent ADMIN users from viewing or managing OWNER/superuser
-    staff profiles through staff-management endpoints.
-    """
+def is_admin_or_owner(user):
+    return (
+        user.is_superuser
+        or getattr(user, 'role', None) in ('ADMIN', 'OWNER')
+    )
+
+
+def ensure_admin_target_access(request, staff):
     if (
         is_admin_actor(request.user)
-        and is_protected_owner_account(staff.user)
+        and (
+            staff.user.is_superuser
+            or getattr(staff.user, 'role', None) == 'OWNER'
+        )
     ):
         raise PermissionDenied(
             'Administrators cannot manage OWNER or superuser accounts.'
         )
 
 
-def staff_queryset_for_user(user):
-    """
-    Return non-archived staff.
+def supervisor_profile_for(user):
+    profile = StaffProfile.objects.filter(
+        user=user,
+        is_archived=False
+    ).select_related('branch').first()
 
-    ADMIN users must not receive OWNER or superuser profiles.
-    OWNER users retain access to all non-archived staff profiles.
-    """
+    if profile is None:
+        raise PermissionDenied(
+            'An active supervisor staff profile is required.'
+        )
+
+    return profile
+
+
+def staff_queryset_for_user(user, include_archived=False):
     queryset = StaffProfile.objects.select_related(
         'user',
         'branch'
     ).prefetch_related(
         'shift_assignments'
-    ).filter(
-        is_archived=False
     )
+
+    if not include_archived:
+        queryset = queryset.filter(is_archived=False)
 
     if is_admin_actor(user):
         queryset = queryset.exclude(
@@ -93,14 +105,74 @@ def staff_queryset_for_user(user):
             user__role='OWNER'
         )
 
+    elif getattr(user, 'role', None) == 'SUPERVISOR' and not user.is_superuser:
+        supervisor = supervisor_profile_for(user)
+
+        queryset = queryset.filter(
+            branch_id=supervisor.branch_id,
+            user__role='CLEANER',
+            user__is_superuser=False,
+        )
+
+    elif not is_admin_or_owner(user):
+        return queryset.none()
+
     return queryset
+
+
+def get_accessible_staff(request, staff_id, include_archived=False):
+    return get_object_or_404(
+        staff_queryset_for_user(
+            request.user,
+            include_archived=include_archived
+        ),
+        pk=staff_id
+    )
+
+
+def ensure_staff_management_access(request, staff, action=None):
+    user = request.user
+
+    if is_admin_or_owner(user):
+        ensure_admin_target_access(request, staff)
+        return
+
+    if (
+        getattr(user, 'role', None) == 'SUPERVISOR'
+        and not user.is_superuser
+    ):
+        supervisor = supervisor_profile_for(user)
+
+        if (
+            staff.branch_id != supervisor.branch_id
+            or staff.user.role != 'CLEANER'
+            or staff.user.is_superuser
+        ):
+            raise PermissionDenied(
+                'Supervisors may only manage cleaners in their own branch.'
+            )
+
+        if action == 'ARCHIVE':
+            raise PermissionDenied(
+                'Only ADMIN or OWNER users may archive staff.'
+            )
+
+        return
+
+    raise PermissionDenied(
+        'You do not have permission to manage this staff member.'
+    )
 
 
 class StaffListCreateView(generics.ListCreateAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+            | IsAccounts
+        ),
     ]
 
     def get_queryset(self):
@@ -110,7 +182,18 @@ class StaffListCreateView(generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return StaffRegistrationSerializer
 
-        return StaffProfileSerializer
+        if getattr(self.request.user, 'role', None) == 'ACCOUNTS':
+            return StaffAccountsDirectorySerializer
+
+        return StaffDirectorySerializer
+
+    def create(self, request, *args, **kwargs):
+        if not is_admin_or_owner(request.user):
+            raise PermissionDenied(
+                'Only ADMIN or OWNER users may register staff.'
+            )
+
+        return super().create(request, *args, **kwargs)
 
 
 class StaffDetailView(generics.RetrieveUpdateAPIView):
@@ -119,11 +202,28 @@ class StaffDetailView(generics.RetrieveUpdateAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def get_queryset(self):
         return staff_queryset_for_user(self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        staff = self.get_object()
+
+        ensure_staff_management_access(request, staff)
+
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        staff = self.get_object()
+
+        ensure_staff_management_access(request, staff)
+
+        return super().partial_update(request, *args, **kwargs)
 
 
 class StaffShiftHistoryView(generics.ListAPIView):
@@ -132,27 +232,25 @@ class StaffShiftHistoryView(generics.ListAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def get_queryset(self):
-        queryset = ShiftAssignment.objects.filter(
-            staff_id=self.kwargs['staff_id'],
-            staff__is_archived=False
+        staff = get_accessible_staff(
+            self.request,
+            self.kwargs['staff_id']
+        )
+
+        return ShiftAssignment.objects.filter(
+            staff=staff
         ).select_related(
             'staff',
             'staff__user',
             'changed_by'
         )
-
-        if is_admin_actor(self.request.user):
-            queryset = queryset.exclude(
-                staff__user__is_superuser=True
-            ).exclude(
-                staff__user__role='OWNER'
-            )
-
-        return queryset
 
 
 class StaffShiftChangeView(generics.GenericAPIView):
@@ -161,20 +259,19 @@ class StaffShiftChangeView(generics.GenericAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def post(self, request, staff_id):
+        staff = get_accessible_staff(request, staff_id)
+
+        ensure_staff_management_access(request, staff)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        staff = get_object_or_404(
-            StaffProfile.objects.select_related('user'),
-            pk=staff_id,
-            is_archived=False
-        )
-
-        ensure_staff_target_access(request, staff)
 
         try:
             assignment = assign_staff_shift(
@@ -206,7 +303,10 @@ class StaffStatusActionView(generics.GenericAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def post(self, request, staff_id):
@@ -218,13 +318,18 @@ class StaffStatusActionView(generics.GenericAPIView):
 
         with transaction.atomic():
             staff = get_object_or_404(
-                StaffProfile.objects.select_for_update().select_related(
-                    'user'
-                ),
+                staff_queryset_for_user(
+                    request.user,
+                    include_archived=True
+                ).select_for_update(),
                 pk=staff_id
             )
 
-            ensure_staff_target_access(request, staff)
+            ensure_staff_management_access(
+                request,
+                staff,
+                action=action
+            )
 
             if staff.user_id == request.user.id and action in (
                 'DEACTIVATE',
@@ -359,31 +464,31 @@ class StaffStatusHistoryView(generics.ListAPIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrOwner,
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def get_queryset(self):
-        queryset = StaffStatusHistory.objects.filter(
-            staff_id=self.kwargs['staff_id']
+        staff = get_accessible_staff(
+            self.request,
+            self.kwargs['staff_id'],
+            include_archived=True
+        )
+
+        return StaffStatusHistory.objects.filter(
+            staff=staff
         ).select_related(
             'staff',
             'staff__user',
             'performed_by'
         )
 
-        if is_admin_actor(self.request.user):
-            queryset = queryset.exclude(
-                staff__user__is_superuser=True
-            ).exclude(
-                staff__user__role='OWNER'
-            )
-
-        return queryset
-
 
 class StaffSelfProfileView(generics.RetrieveAPIView):
     """
-    Return only the authenticated user's own staff profile.
+    Return the authenticated user's own staff profile.
     """
 
     serializer_class = StaffProfileSerializer
@@ -406,17 +511,20 @@ class StaffSelfProfileView(generics.RetrieveAPIView):
 
 class StaffBranchPickerView(generics.ListAPIView):
     """
-    Return active staff available for service assignment.
+    Return only operational fields needed for attendance and
+    service assignment. Personal contact details are never included.
 
     Supervisors are restricted to their own branch.
-    Admins and Owners may optionally filter by branch_id.
     """
 
-    serializer_class = StaffProfileSerializer
+    serializer_class = StaffBranchPickerSerializer
 
     permission_classes = [
         IsAuthenticated,
-        (IsAdminOrOwner | IsSupervisor),
+        (
+            IsAdminOrOwner
+            | IsSupervisor
+        ),
     ]
 
     def get_queryset(self):
@@ -433,25 +541,21 @@ class StaffBranchPickerView(generics.ListAPIView):
             user__is_active=True,
         )
 
-        if (
-            not user.is_superuser
-            and user.role == 'SUPERVISOR'
-        ):
-            supervisor_profile = StaffProfile.objects.filter(
-                user=user,
-                is_archived=False,
-                employment_status=StaffProfile.EmploymentStatus.ACTIVE,
-            ).select_related(
-                'branch'
-            ).first()
+        if is_admin_actor(user):
+            queryset = queryset.exclude(
+                user__is_superuser=True
+            ).exclude(
+                user__role='OWNER'
+            )
 
-            if supervisor_profile is None:
-                raise PermissionDenied(
-                    'An active supervisor staff profile is required.'
-                )
+        elif (
+            getattr(user, 'role', None) == 'SUPERVISOR'
+            and not user.is_superuser
+        ):
+            supervisor = supervisor_profile_for(user)
 
             queryset = queryset.filter(
-                branch_id=supervisor_profile.branch_id
+                branch_id=supervisor.branch_id
             )
 
         else:
