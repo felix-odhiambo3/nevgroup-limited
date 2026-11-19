@@ -27,11 +27,7 @@ import { useAuth } from '../features/auth/AuthContext'
 
 import {
   getStaff,
-<<<<<<< HEAD
   getStaffMember,
-=======
-  getStaffSelfProfile,
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
   registerStaff,
   updateStaff,
   updateStaffStatus,
@@ -107,7 +103,6 @@ function getErrorMessage(error) {
     .join('\n')
 }
 
-<<<<<<< HEAD
 function formatDateTime(value) {
   if (!value) return 'Not available'
 
@@ -125,37 +120,6 @@ function formatRole(role) {
     .toLowerCase()
     .replaceAll('_', ' ')
     .replace(/\b\w/g, (character) => character.toUpperCase())
-=======
-// Handles both a numeric branch ID and a nested branch object.
-function getProfileBranchId(profile) {
-  if (!profile) return null
-
-  if (profile.branch_id !== undefined && profile.branch_id !== null) {
-    return Number(profile.branch_id)
-  }
-
-  if (profile.branch && typeof profile.branch === 'object') {
-    return profile.branch.id ? Number(profile.branch.id) : null
-  }
-
-  if (profile.branch !== undefined && profile.branch !== null) {
-    return Number(profile.branch)
-  }
-
-  return null
-}
-
-function SummaryCard({ label, value, description }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 mt-2">{value}</p>
-      {description && (
-        <p className="text-xs text-slate-500 mt-1">{description}</p>
-      )}
-    </div>
-  )
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 }
 
 function getStatusStyle(status) {
@@ -182,28 +146,6 @@ function getActionLabel(action) {
   return labels[action] || action
 }
 
-<<<<<<< HEAD
-=======
-function formatDateTime(value) {
-  if (!value) return 'Not available'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) return value
-
-  return date.toLocaleString()
-}
-
-function formatRole(role) {
-  if (!role) return 'Not assigned'
-
-  return role
-    .toLowerCase()
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (character) => character.toUpperCase())
-}
-
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 function Modal({
   title,
   description,
@@ -309,7 +251,6 @@ export default function StaffPage() {
   const { user } = useAuth()
 
   const currentRole = user?.role
-<<<<<<< HEAD
   const isOwner = currentRole === 'OWNER' || Boolean(user?.is_superuser)
   const isAdmin = currentRole === 'ADMIN' && !user?.is_superuser
   const isSupervisor = currentRole === 'SUPERVISOR'
@@ -320,17 +261,9 @@ export default function StaffPage() {
   const canManageRoles = isOwner || isAdmin
   const canManageAdminRole = isOwner
   const canArchiveStaff = isOwner || isAdmin
-=======
-  const isSupervisor = currentRole === 'SUPERVISOR'
-  const canManageRoles = ['OWNER', 'ADMIN'].includes(currentRole)
-  const canManageAdminRole =
-    currentRole === 'OWNER' || Boolean(user?.is_superuser)
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 
   const [staff, setStaff] = useState([])
   const [branches, setBranches] = useState([])
-  const [supervisorBranchId, setSupervisorBranchId] = useState(null)
-  const [supervisorBranchName, setSupervisorBranchName] = useState('')
 
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -393,18 +326,6 @@ export default function StaffPage() {
   const [shiftHistoryLoading, setShiftHistoryLoading] = useState(false)
   const [shiftHistoryError, setShiftHistoryError] = useState('')
 
-  // Supervisors may manage only cleaner profiles.
-  // Their staff list is also branch-filtered by the backend.
-  const canManageMember = useCallback((member) => {
-    if (!member || member.role === 'OWNER') return false
-
-    if (isSupervisor) {
-      return member.role === 'CLEANER'
-    }
-
-    return ['OWNER', 'ADMIN'].includes(currentRole)
-  }, [isSupervisor, currentRole])
-
   const loadStaff = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -427,57 +348,19 @@ export default function StaffPage() {
     }
   }, [])
 
-    const loadBranches = useCallback(async () => {
+  const loadBranches = useCallback(async () => {
     setBranchesLoading(true)
     setBranchError('')
 
     try {
-      if (isSupervisor) {
-        // Supervisors must retrieve only their own assigned branch.
-        // Do not call the general branches endpoint.
-        const profile = await getStaffSelfProfile()
-        const branchId = getProfileBranchId(profile)
-
-        if (!branchId || !Number.isFinite(branchId)) {
-          throw new Error(
-            'Your staff profile does not have a valid assigned branch. Contact an administrator.'
-          )
-        }
-
-        const branchObject =
-          profile.branch && typeof profile.branch === 'object'
-            ? profile.branch
-            : null
-
-        const branchName =
-          profile.branch_name ||
-          branchObject?.name ||
-          'Your assigned branch'
-
-        const assignedBranch = {
-          id: branchId,
-          name: branchName,
-          code: branchObject?.code || '',
-          is_active: true,
-        }
-
-        setSupervisorBranchId(branchId)
-        setSupervisorBranchName(branchName)
-        setBranches([assignedBranch])
-      } else {
-        // Owners and administrators retain access to all active branches.
-        const activeBranches = await getBranches()
-        setBranches(activeBranches)
-      }
+      const data = await getBranches()
+      setBranches(data)
     } catch (err) {
-      setBranches([])
-      setSupervisorBranchId(null)
-      setSupervisorBranchName('')
       setBranchError(getErrorMessage(err))
     } finally {
       setBranchesLoading(false)
     }
-  }, [isSupervisor])
+  }, [])
 
   useEffect(() => {
     loadStaff()
@@ -561,10 +444,6 @@ export default function StaffPage() {
 
     setForm({
       ...initialForm,
-      branch: isSupervisor && supervisorBranchId
-        ? String(supervisorBranchId)
-        : '',
-      role: isSupervisor ? 'CLEANER' : 'CLEANER',
       date_joined: getToday(),
     })
 
@@ -592,21 +471,8 @@ export default function StaffPage() {
     setFormError('')
     setSuccessMessage('')
 
-    const selectedBranch = isSupervisor
-      ? supervisorBranchId
-      : Number(form.branch)
-
-    if (!selectedBranch) {
-      setFormError(
-        isSupervisor
-          ? 'Your assigned branch could not be identified. Please contact an administrator.'
-          : 'Please select a branch.'
-      )
-      return
-    }
-
-    if (isSupervisor && !supervisorBranchId) {
-      setFormError('Your assigned branch could not be verified. Registration is unavailable.')
+    if (!form.branch) {
+      setFormError('Please select a branch.')
       return
     }
 
@@ -622,9 +488,7 @@ export default function StaffPage() {
 
     const payload = {
       ...form,
-      branch: Number(selectedBranch),
-      // A supervisor can register cleaners only.
-      role: isSupervisor ? 'CLEANER' : form.role,
+      branch: Number(form.branch),
     }
 
     setSubmitting(true)
@@ -645,29 +509,9 @@ export default function StaffPage() {
     }
   }
 
-<<<<<<< HEAD
   const openEdit = async (member) => {
     if (!canManageStaff) return
 
-=======
-  const openEdit = (member) => {
-    if (!canManageMember(member)) {
-      setError('You are not permitted to manage this staff member.')
-      return
-    }
-
-    setEditingMember(member)
-    setEditForm({
-      staff_number: member.staff_number || '',
-      branch: isSupervisor && supervisorBranchId
-        ? String(supervisorBranchId)
-        : member.branch
-          ? String(member.branch)
-          : '',
-      phone_number: member.phone_number || '',
-      date_joined: member.date_joined || '',
-    })
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
     setEditError('')
     setSuccessMessage('')
 
@@ -701,11 +545,6 @@ export default function StaffPage() {
 
     if (!editingMember || !canManageStaff) return
 
-    if (!canManageMember(editingMember)) {
-      setEditError('You are not permitted to edit this staff member.')
-      return
-    }
-
     setEditError('')
     setSuccessMessage('')
 
@@ -714,16 +553,8 @@ export default function StaffPage() {
       return
     }
 
-    const selectedBranch = isSupervisor
-      ? supervisorBranchId
-      : Number(editForm.branch)
-
-    if (!selectedBranch) {
-      setEditError(
-        isSupervisor
-          ? 'Your assigned branch could not be verified.'
-          : 'Please select a branch.'
-      )
+    if (!editForm.branch) {
+      setEditError('Please select a branch.')
       return
     }
 
@@ -739,8 +570,7 @@ export default function StaffPage() {
 
     const payload = {
       staff_number: editForm.staff_number.trim(),
-      // Supervisors cannot transfer a cleaner to another branch.
-      branch: Number(selectedBranch),
+      branch: Number(editForm.branch),
       phone_number: editForm.phone_number.trim(),
       date_joined: editForm.date_joined,
     }
@@ -764,27 +594,9 @@ export default function StaffPage() {
     }
   }
 
-<<<<<<< HEAD
   const openStatusManager = async (member) => {
     if (!canManageStaff) return
 
-=======
-  const openStatusAction = (member, action) => {
-    if (!canManageMember(member)) {
-      setError('You are not permitted to manage this staff member.')
-      return
-    }
-
-    // Explicit frontend block: supervisors must never archive cleaners.
-    if (isSupervisor && action === 'ARCHIVE') {
-      setActionError('Supervisors are not permitted to archive staff members.')
-      return
-    }
-
-    setSelectedMember(member)
-    setPendingAction(action)
-    setActionReason('')
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
     setActionError('')
     setActionReason('')
     setPendingAction('')
@@ -811,17 +623,6 @@ export default function StaffPage() {
     event.preventDefault()
 
     if (!selectedMember || !pendingAction || !canManageStaff) return
-
-    if (!canManageMember(selectedMember)) {
-      setActionError('You are not permitted to manage this staff member.')
-      return
-    }
-
-    // Second guard prevents archive even if the modal is opened indirectly.
-    if (isSupervisor && pendingAction === 'ARCHIVE') {
-      setActionError('Supervisors are not permitted to archive staff members.')
-      return
-    }
 
     if (
       ['SUSPEND', 'DEACTIVATE', 'ARCHIVE'].includes(pendingAction) &&
@@ -917,15 +718,8 @@ export default function StaffPage() {
   }
 
   const selectRoleMember = async (member) => {
-<<<<<<< HEAD
     setRoleMember(null)
     setRoleValue('')
-=======
-    if (!canManageRoles) return
-
-    setRoleMember(member)
-    setRoleValue(member.role || '')
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
     setRoleReason('')
     setRoleError('')
     setRoleHistory([])
@@ -954,11 +748,7 @@ export default function StaffPage() {
   const handleRoleChange = async (event) => {
     event.preventDefault()
 
-<<<<<<< HEAD
     if (!roleMember || !canManageRoles) return
-=======
-    if (!canManageRoles || !roleMember) return
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 
     setRoleError('')
 
@@ -1046,19 +836,7 @@ export default function StaffPage() {
   }
 
   const selectShiftMember = async (member) => {
-<<<<<<< HEAD
     setShiftMember(null)
-=======
-    if (!canManageMember(member)) {
-      setShiftError('You are not permitted to manage this staff member.')
-      return
-    }
-
-    setShiftMember(member)
-    setShiftValue(member.current_shift || 'DAY')
-    setShiftEffectiveFrom(getToday())
-    setShiftReason('')
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
     setShiftError('')
     setShiftHistory([])
     setShiftHistoryError('')
@@ -1085,11 +863,6 @@ export default function StaffPage() {
     event.preventDefault()
 
     if (!shiftMember || !canManageStaff) return
-
-    if (!canManageMember(shiftMember)) {
-      setShiftError('You are not permitted to manage this staff member.')
-      return
-    }
 
     setShiftError('')
 
@@ -1184,23 +957,8 @@ export default function StaffPage() {
 
   const currentAction = actionDetails[pendingAction]
 
-<<<<<<< HEAD
   const manageableRoleMembers = staff
   const shiftMembers = staff
-=======
-  const manageableRoleMembers = staff.filter(
-    (member) =>
-      member.role !== 'OWNER' &&
-      member.user &&
-      member.employment_status !== 'ARCHIVED'
-  )
-
-  const shiftMembers = staff.filter(
-    (member) =>
-      member.employment_status !== 'ARCHIVED' &&
-      canManageMember(member)
-  )
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 
   return (
     <div className="space-y-7">
@@ -1218,15 +976,9 @@ export default function StaffPage() {
             <p className="text-sm text-slate-500 mt-1">
               Manage NEV CARWASH employees, roles, shifts and staff accounts.
             </p>
-            {isSupervisor && (
-              <p className="text-xs font-medium text-blue-700 mt-1">
-                Supervisor access: cleaners in {supervisorBranchName || 'your assigned branch'} only.
-              </p>
-            )}
           </div>
         </div>
 
-<<<<<<< HEAD
         <div className="flex flex-wrap gap-2">
           {canRegisterStaff && (
             <button
@@ -1238,19 +990,6 @@ export default function StaffPage() {
               Register Staff
             </button>
           )}
-=======
-        {/* Management buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={openRegistration}
-            disabled={isSupervisor && (!supervisorBranchId || branchesLoading)}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <UserPlus size={18} />
-            Register Staff
-          </button>
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 
           <button
             type="button"
@@ -1287,27 +1026,6 @@ export default function StaffPage() {
         </div>
       </div>
 
-<<<<<<< HEAD
-=======
-      {isSupervisor && branchError && (
-        <div
-          role="alert"
-          className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 whitespace-pre-line"
-        >
-          <strong>Branch information unavailable.</strong>
-          <p className="mt-1">{branchError}</p>
-          <button
-            type="button"
-            onClick={loadBranches}
-            className="underline font-semibold mt-2"
-          >
-            Retry loading assigned branch
-          </button>
-        </div>
-      )}
-
-      {/* Success message */}
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
       {successMessage && (
         <div
           role="status"
@@ -1350,13 +1068,7 @@ export default function StaffPage() {
             <div>
               <h2 className="font-semibold text-slate-900">Staff Directory</h2>
               <p className="text-sm text-slate-500 mt-1">
-<<<<<<< HEAD
                 The default directory shows only staff number and assigned shift.
-=======
-                {isSupervisor
-                  ? 'View and manage cleaners assigned to your branch.'
-                  : 'View and manage employee records and account access.'}
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
               </p>
             </div>
 
@@ -1437,20 +1149,11 @@ export default function StaffPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-<<<<<<< HEAD
                   {filteredStaff.map((member) => (
                     <tr key={member.id} className="hover:bg-slate-50 align-top">
                       <td className="px-5 py-4 text-sm font-semibold text-slate-800">
                         {member.staff_number || 'Not assigned'}
                       </td>
-=======
-                  {filteredStaff.map((member) => {
-                    const active = member.employment_status === 'ACTIVE'
-                    const suspended = member.employment_status === 'SUSPENDED'
-                    const inactive = member.employment_status === 'INACTIVE'
-                    const isOwnerAccount = member.role === 'OWNER'
-                    const canManageThisMember = canManageMember(member)
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
 
                       <td className="px-5 py-4 text-sm text-slate-700">
                         <span className="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
@@ -1471,12 +1174,8 @@ export default function StaffPage() {
                             </button>
                           )}
 
-<<<<<<< HEAD
                           {canManageStaff && (
                             <>
-=======
-                            {canManageThisMember && !isOwnerAccount && (
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
                               <button
                                 type="button"
                                 onClick={() => openEdit(member)}
@@ -1486,7 +1185,6 @@ export default function StaffPage() {
                                 Edit
                               </button>
 
-<<<<<<< HEAD
                               <button
                                 type="button"
                                 onClick={() => openStatusManager(member)}
@@ -1510,70 +1208,6 @@ export default function StaffPage() {
                       </td>
                     </tr>
                   ))}
-=======
-                            {active && canManageThisMember && !isOwnerAccount && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'SUSPEND')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold"
-                                >
-                                  <ShieldAlert size={14} />
-                                  Suspend
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'DEACTIVATE')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold"
-                                >
-                                  <UserX size={14} />
-                                  Deactivate
-                                </button>
-                              </>
-                            )}
-
-                            {(inactive || suspended) &&
-                              canManageThisMember &&
-                              !isOwnerAccount && (
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'ACTIVATE')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 text-xs font-semibold"
-                                >
-                                  <CheckCircle2 size={14} />
-                                  {suspended ? 'Reactivate' : 'Activate'}
-                                </button>
-                              )}
-
-                            {/* Archive is deliberately unavailable to supervisors. */}
-                            {!isSupervisor &&
-                              canManageThisMember &&
-                              !isOwnerAccount && (
-                                <button
-                                  type="button"
-                                  onClick={() => openStatusAction(member, 'ARCHIVE')}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-semibold"
-                                >
-                                  <Archive size={14} />
-                                  Archive
-                                </button>
-                              )}
-
-                            <button
-                              type="button"
-                              onClick={() => openHistory(member)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold"
-                            >
-                              <History size={14} />
-                              History
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
                 </tbody>
               </table>
             </div>
@@ -1713,50 +1347,30 @@ export default function StaffPage() {
               <label htmlFor="edit_branch" className={labelClass}>
                 Branch *
               </label>
-
-              {isSupervisor ? (
-                <div className="relative">
-                  <Building2
-                    size={17}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    id="edit_branch"
-                    value={supervisorBranchName || branches[0]?.name || 'Your assigned branch'}
-                    className={`${inputClass} pl-10`}
-                    disabled
-                    readOnly
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Supervisors cannot transfer cleaners to another branch.
-                  </p>
-                </div>
-              ) : (
-                <div className="relative">
-                  <Building2
-                    size={17}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <select
-                    id="edit_branch"
-                    name="branch"
-                    value={editForm.branch}
-                    onChange={updateEditField}
-                    className={`${inputClass} pl-10`}
-                    required
-                    disabled={branchesLoading || branches.length === 0}
-                  >
-                    <option value="">
-                      {branchesLoading ? 'Loading branches...' : 'Select branch'}
+              <div className="relative">
+                <Building2
+                  size={17}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <select
+                  id="edit_branch"
+                  name="branch"
+                  value={editForm.branch}
+                  onChange={updateEditField}
+                  className={`${inputClass} pl-10`}
+                  required
+                  disabled={branchesLoading || branches.length === 0}
+                >
+                  <option value="">
+                    {branchesLoading ? 'Loading branches...' : 'Select branch'}
+                  </option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} ({branch.code})
                     </option>
-                    {branches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} ({branch.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                  ))}
+                </select>
+              </div>
 
               {branchError && (
                 <p className="text-xs text-red-600 mt-1">{branchError}</p>
@@ -2236,9 +1850,7 @@ export default function StaffPage() {
                   Register New Staff
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  {isSupervisor
-                    ? 'Register a cleaner for your assigned branch.'
-                    : 'Create an employee account and assign their branch and shift.'}
+                  Create an employee account and assign their branch and shift.
                 </p>
               </div>
 
@@ -2421,52 +2033,32 @@ export default function StaffPage() {
                       <label htmlFor="branch" className={labelClass}>
                         Branch *
                       </label>
-
-                      {isSupervisor ? (
-                        <div className="relative">
-                          <Building2
-                            size={17}
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          />
-                          <input
-                            id="branch"
-                            value={supervisorBranchName || branches[0]?.name || ''}
-                            className={`${inputClass} pl-10`}
-                            disabled
-                            readOnly
-                          />
-                          <p className="text-xs text-slate-500 mt-1">
-                            New cleaners are registered only in your assigned branch.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="relative">
-                          <Building2
-                            size={17}
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          />
-                          <select
-                            id="branch"
-                            name="branch"
-                            value={form.branch}
-                            onChange={updateField}
-                            className={`${inputClass} pl-10`}
-                            required
-                            disabled={branchesLoading || branches.length === 0}
-                          >
-                            <option value="">
-                              {branchesLoading
-                                ? 'Loading branches...'
-                                : 'Select branch'}
+                      <div className="relative">
+                        <Building2
+                          size={17}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <select
+                          id="branch"
+                          name="branch"
+                          value={form.branch}
+                          onChange={updateField}
+                          className={`${inputClass} pl-10`}
+                          required
+                          disabled={branchesLoading || branches.length === 0}
+                        >
+                          <option value="">
+                            {branchesLoading
+                              ? 'Loading branches...'
+                              : 'Select branch'}
+                          </option>
+                          {branches.map((branch) => (
+                            <option key={branch.id} value={branch.id}>
+                              {branch.name} ({branch.code})
                             </option>
-                            {branches.map((branch) => (
-                              <option key={branch.id} value={branch.id}>
-                                {branch.name} ({branch.code})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                          ))}
+                        </select>
+                      </div>
 
                       {branchError && (
                         <p className="text-xs text-red-600 mt-1">
@@ -2485,34 +2077,19 @@ export default function StaffPage() {
                       <label htmlFor="role" className={labelClass}>
                         Staff Role *
                       </label>
-                      {isSupervisor ? (
-                        <>
-                          <input
-                            id="role"
-                            value="Cleaner"
-                            className={inputClass}
-                            disabled
-                            readOnly
-                          />
-                          <p className="text-xs text-slate-500 mt-1">
-                            Supervisors can register cleaners only.
-                          </p>
-                        </>
-                      ) : (
-                        <select
-                          id="role"
-                          name="role"
-                          value={form.role}
-                          onChange={updateField}
-                          className={inputClass}
-                          required
-                        >
-                          <option value="CLEANER">Cleaner</option>
-                          <option value="DETAILER">Detailer</option>
-                          <option value="SUPERVISOR">Supervisor</option>
-                          <option value="ACCOUNTS">Accounts</option>
-                        </select>
-                      )}
+                      <select
+                        id="role"
+                        name="role"
+                        value={form.role}
+                        onChange={updateField}
+                        className={inputClass}
+                        required
+                      >
+                        <option value="CLEANER">Cleaner</option>
+                        <option value="DETAILER">Detailer</option>
+                        <option value="SUPERVISOR">Supervisor</option>
+                        <option value="ACCOUNTS">Accounts</option>
+                      </select>
                     </div>
 
                     <div>
@@ -2566,12 +2143,7 @@ export default function StaffPage() {
 
                 <button
                   type="submit"
-                  disabled={
-                    submitting ||
-                    branchesLoading ||
-                    branches.length === 0 ||
-                    (isSupervisor && !supervisorBranchId)
-                  }
+                  disabled={submitting || branchesLoading || branches.length === 0}
                   className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {submitting ? (
@@ -2614,7 +2186,6 @@ export default function StaffPage() {
                   Back
                 </button>
 
-<<<<<<< HEAD
                 <button
                   type="submit"
                   form="staff-status-action-form"
@@ -2635,27 +2206,6 @@ export default function StaffPage() {
                 </button>
               </div>
             ) : null
-=======
-              <button
-                type="submit"
-                form="staff-status-action-form"
-                disabled={actionLoading || (isSupervisor && pendingAction === 'ARCHIVE')}
-                className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-50 ${currentAction.buttonClass}`}
-              >
-                {actionLoading ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    {currentAction.icon}
-                    {currentAction.button}
-                  </>
-                )}
-              </button>
-            </div>
->>>>>>> 3ae89cc8482c3752c3503c53e424245302577fdf
           }
         >
           {!currentAction ? (
