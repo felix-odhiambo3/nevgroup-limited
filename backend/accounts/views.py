@@ -68,64 +68,21 @@ def valid_diagnostic_token(request):
 
 class ProductionUserDiagnosticView(APIView):
     """
-    Temporary, read-only production account diagnostic.
+    Temporary, read-only diagnostic for the authenticated superuser.
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not valid_diagnostic_token(request):
+        if not request.user.is_superuser:
             return Response(
-                {"detail": "Not found."},
-                status=status.HTTP_404_NOT_FOUND
+                {"detail": "Permission denied."},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        if request.query_params.get("list") == "1":
-            users = User.objects.all().order_by("username")
-
-            user_records = list(
-                users.values(
-                    "username",
-                    "role",
-                    "is_active",
-                    "is_staff",
-                    "is_superuser",
-                )
-            )
-
-            return Response({
-                "total_users": len(user_records),
-                "users": user_records,
-            })
-
-        username = request.query_params.get(
-            "username",
-            ""
-        ).strip()
-
-        if not username:
-            return Response(
-                {
-                    "detail": (
-                        "Provide a username parameter "
-                        "or use ?list=1."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user = User.objects.filter(
-            username__iexact=username
-        ).first()
-
-        if not user:
-            return Response({
-                "exists": False,
-                "username": username,
-            })
+        user = request.user
 
         return Response({
-            "exists": True,
             "username": user.username,
             "role": user.role,
             "is_active": user.is_active,
