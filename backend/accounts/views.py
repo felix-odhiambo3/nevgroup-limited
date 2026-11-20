@@ -65,32 +65,6 @@ def valid_diagnostic_token(request):
         and compare_digest(supplied_token, expected_token)
     )
 
-
-class ProductionUserDiagnosticView(APIView):
-    """
-    Temporary, read-only diagnostic for the authenticated superuser.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        if not request.user.is_superuser:
-            return Response(
-                {"detail": "Permission denied."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        user = request.user
-
-        return Response({
-            "username": user.username,
-            "role": user.role,
-            "is_active": user.is_active,
-            "is_staff": user.is_staff,
-            "is_superuser": user.is_superuser,
-        })
-
-
 class ProductionOwnerBootstrapView(APIView):
     """
     Temporary one-time endpoint for creating the initial production Owner.
