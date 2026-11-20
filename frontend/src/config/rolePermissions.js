@@ -71,8 +71,17 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
     ROLES.SUPERVISOR,
   ],
+  '/branch-gps-settings': [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+ ],
 
   '/services': [
+    ROLES.OWNER,
+    ROLES.ADMIN,
+  ],
+  
+    '/branch-gps-settings': [
     ROLES.OWNER,
     ROLES.ADMIN,
   ],

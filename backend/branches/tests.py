@@ -5,8 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
-from .models import Branch
-
+from .models import Branch, BranchLocationAudit
 
 User = get_user_model()
 
@@ -225,3 +224,74 @@ class BranchManagementTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.branch.refresh_from_db()
         self.assertTrue(self.branch.is_active)
+    def test_owner_location_change_creates_audit_record(self):
+        self.authenticate(self.owner)
+
+        response = self.client.patch(
+            self.detail_url,
+            {
+                'latitude': '-1.2469020',
+                'longitude': '36.6607710',
+                'attendance_radius': 150,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        audit = BranchLocationAudit.objects.get(
+            branch=self.branch
+        )
+
+        self.assertEqual(audit.changed_by, self.owner)
+        self.assertIsNone(audit.old_latitude)
+        self.assertIsNone(audit.old_longitude)
+        self.assertEqual(
+            audit.new_latitude,
+            self.branch.__class__._meta.get_field(
+                'latitude'
+            ).to_python('-1.2469020'),
+        )
+        self.assertEqual(
+            audit.new_longitude,
+            self.branch.__class__._meta.get_field(
+                'longitude'
+            ).to_python('36.6607710'),
+        )
+        self.assertEqual(audit.old_attendance_radius, 100)
+        self.assertEqual(audit.new_attendance_radius, 150)
+
+    def test_branch_name_change_does_not_create_gps_audit(self):
+        self.authenticate(self.owner)
+
+        response = self.client.patch(
+            self.detail_url,
+            {'name': 'Updated Kikuyu Branch'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            BranchLocationAudit.objects.filter(
+                branch=self.branch
+            ).count(),
+            0,
+        )
+
+    def test_partial_gps_coordinates_are_rejected(self):
+        self.authenticate(self.owner)
+
+        response = self.client.patch(
+            self.detail_url,
+            {'latitude': '-1.2469020'},
+            format='json',
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.branch.refresh_from_db()
+        self.assertIsNone(self.branch.latitude)
+        self.assertIsNone(self.branch.longitude)

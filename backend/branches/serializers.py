@@ -47,3 +47,27 @@ class BranchSerializer(serializers.ModelSerializer):
             )
 
         return value
+    def validate(self, attrs):
+        latitude = attrs.get(
+            'latitude',
+            self.instance.latitude if self.instance else None,
+        )
+
+        longitude = attrs.get(
+            'longitude',
+            self.instance.longitude if self.instance else None,
+        )
+
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError({
+                'latitude': (
+                    'Latitude and longitude must both be provided '
+                    'or both be empty.'
+                ),
+                'longitude': (
+                    'Latitude and longitude must both be provided '
+                    'or both be empty.'
+                ),
+            })
+
+        return attrs
