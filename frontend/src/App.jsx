@@ -18,6 +18,7 @@ import {
 } from './config/rolePermissions'
 
 import LoginPage from './pages/LoginPage'
+import BranchGPSSettingsPage from './pages/BranchGPSSettingsPage'
 import DashboardPage from './pages/DashboardPage'
 import StaffPage from './pages/StaffPage'
 import ServicesPage from './pages/ServicesPage'
@@ -117,6 +118,11 @@ function AppRoutes() {
 
         <Route path="/invoices" element={<InvoicePage />} />
         <Route path="/make-payment" element={<MakePaymentPage />} />
+
+        <Route
+          path="/branch-gps-settings"
+          element={<BranchGPSSettingsPage />}
+        />
       </Route>
 
       <Route

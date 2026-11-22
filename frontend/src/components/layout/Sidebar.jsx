@@ -17,6 +17,7 @@ import {
   RotateCcw,
   TrendingUp,
   BadgeDollarSign,
+  MapPin,
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
@@ -38,7 +39,6 @@ const navigation = [
       },
     ],
   },
-
   {
     title: 'OPERATIONS',
     items: [
@@ -79,7 +79,6 @@ const navigation = [
       },
     ],
   },
-
   {
     title: 'FINANCE',
     items: [
@@ -122,6 +121,16 @@ const navigation = [
         name: 'Commission Adjustments',
         path: '/commission-adjustments',
         icon: BadgeDollarSign,
+      },
+    ],
+  },
+  {
+    title: 'SETTINGS',
+    items: [
+      {
+        name: 'Branch GPS Settings',
+        path: '/branch-gps-settings',
+        icon: MapPin,
       },
     ],
   },

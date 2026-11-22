@@ -2,7 +2,6 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
-    ProductionUserDiagnosticView,
     ProductionOwnerBootstrapView,
     CustomTokenObtainPairView,
     LogoutView,
@@ -22,11 +21,7 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
     path("owner-test/", OwnerTestView.as_view(), name="owner_test"),
 
-    path(
-        "diagnostics/user/",
-        ProductionUserDiagnosticView.as_view(),
-        name="production_user_diagnostic",
-    ),
+    
     path(
         "diagnostics/bootstrap-owner/",
         ProductionOwnerBootstrapView.as_view(),

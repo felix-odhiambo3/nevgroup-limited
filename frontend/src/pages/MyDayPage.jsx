@@ -26,6 +26,10 @@ import {
   completeServiceAssignment,
 } from '../api/visits'
 
+import {
+  getCommissionSummary,
+} from '../api/payments'
+
 function getErrorMessage(error) {
   const data = error?.response?.data
 
@@ -337,6 +341,8 @@ export default function MyDayPage() {
   const { user } = useAuth()
 
   const [myDay, setMyDay] = useState(null)
+  const [commissionSummary, setCommissionSummary] = useState(null)
+  const [commissionError, setCommissionError] = useState('')
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [actionMessage, setActionMessage] = useState(null)
@@ -344,18 +350,34 @@ export default function MyDayPage() {
   const [filter, setFilter] = useState('ALL')
 
   const loadMyDay = useCallback(async () => {
-    setLoading(true)
-    setPageError('')
+  setLoading(true)
+  setPageError('')
+  setCommissionError('')
+  setCommissionSummary(null)
 
+  try {
+    const result = await getMyDay()
+    setMyDay(result)
+
+    // Fetch this cleaner's commission for the MyDay date.
     try {
-      const result = await getMyDay()
-      setMyDay(result)
+      const rows = await getCommissionSummary({
+        date_from: result.date,
+        date_to: result.date,
+      })
+
+      setCommissionSummary(
+        Array.isArray(rows) ? rows[0] || null : null
+      )
     } catch (error) {
-      setPageError(getErrorMessage(error))
-    } finally {
-      setLoading(false)
+      setCommissionError(getErrorMessage(error))
     }
-  }, [])
+  } catch (error) {
+    setPageError(getErrorMessage(error))
+  } finally {
+    setLoading(false)
+  }
+}, [])
 
   useEffect(() => {
     loadMyDay()
@@ -420,7 +442,9 @@ export default function MyDayPage() {
   ].filter(Boolean).join(' ') || user?.username || 'Cleaner'
 
   const summary = myDay?.summary || {}
-  const commission = myDay?.commission || {}
+  const earnedCommission = commissionSummary
+  ? Number(commissionSummary.earned_commission || 0)
+  : null
   const leaderboard = myDay?.leaderboard || []
 
   return (
@@ -596,44 +620,62 @@ export default function MyDayPage() {
           </section>
 
           {/* Commission */}
-          <section className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                  <Wallet size={24} />
-                </div>
+          {/* Commission */}
+<section className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white p-5 shadow-sm sm:p-6">
+  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+    <div className="flex items-start gap-4">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+        <Wallet size={24} />
+      </div>
 
-                <div>
-                  <p className="text-sm font-bold uppercase tracking-wide text-amber-800">
-                    Today's Commission
-                  </p>
+      <div>
+        <p className="text-sm font-bold uppercase tracking-wide text-amber-800">
+          Today's Commission
+        </p>
 
-                  {commission.amount !== null &&
-                  commission.amount !== undefined ? (
-                    <p className="mt-1 text-3xl font-extrabold text-slate-900">
-                      KES {Number(commission.amount).toLocaleString('en-KE')}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xl font-extrabold text-slate-900">
-                      Awaiting billing integration
-                    </p>
-                  )}
+        {commissionError ? (
+          <p className="mt-2 text-sm font-semibold text-red-700">
+            Commission could not be loaded.
+          </p>
+        ) : earnedCommission !== null ? (
+          <p className="mt-1 text-3xl font-extrabold text-slate-900">
+            KES {earnedCommission.toLocaleString('en-KE', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </p>
+        ) : (
+          <p className="mt-1 text-xl font-extrabold text-slate-900">
+            No earnings yet
+          </p>
+        )}
 
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                    {commission.message ||
-                      'Your commission will appear after the visit billing records are connected.'}
-                  </p>
-                </div>
-              </div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          {commissionError
+            ? commissionError
+            : commissionSummary
+              ? 'Commission earned from your invoiced services today.'
+              : 'Your commission will appear here after your completed services have been invoiced.'}
+        </p>
+      </div>
+    </div>
 
-              <span className="inline-flex items-center gap-2 self-start rounded-full bg-amber-100 px-3 py-2 text-xs font-bold text-amber-800 sm:self-center">
-                <Activity size={14} />
-                {commission.status === 'AVAILABLE'
-                  ? 'Calculated'
-                  : 'Not yet calculated'}
-              </span>
-            </div>
-          </section>
+    <span className={`inline-flex items-center gap-2 self-start rounded-full px-3 py-2 text-xs font-bold sm:self-center ${
+      commissionError
+        ? 'bg-red-100 text-red-800'
+        : commissionSummary
+          ? 'bg-emerald-100 text-emerald-800'
+          : 'bg-amber-100 text-amber-800'
+    }`}>
+      <Activity size={14} />
+      {commissionError
+        ? 'Unavailable'
+        : commissionSummary
+          ? 'Calculated'
+          : 'No earnings yet'}
+    </span>
+  </div>
+</section>
 
           {/* Assignments */}
           <section className="space-y-4">

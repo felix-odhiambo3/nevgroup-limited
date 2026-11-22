@@ -1,3 +1,4 @@
+
 import api from './client'
 
 export const getBranches = async () => {
@@ -8,4 +9,13 @@ export const getBranches = async () => {
     : response.data.results || []
 
   return branches.filter((branch) => branch.is_active)
+}
+
+export const updateBranch = async (branchId, payload) => {
+  const response = await api.patch(
+    `branches/${branchId}/`,
+    payload
+  )
+
+  return response.data
 }
