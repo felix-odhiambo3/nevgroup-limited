@@ -638,7 +638,7 @@ class VisitCompleteView(APIView):
             'branch',
         )
 
-        if not user.is_superuser and role == 'SUPERVISOR':
+        if not user.is_superuser and role in {'SUPERVISOR', 'ADMIN'}:
             staff = get_active_staff_profile(user)
             queryset = queryset.filter(branch_id=staff.branch_id)
 

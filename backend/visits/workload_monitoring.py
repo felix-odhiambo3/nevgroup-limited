@@ -464,3 +464,153 @@ class WorkloadReportView(APIView):
             "summary": overall,
             "branches": branch_reports,
         }, status=status.HTTP_200_OK)
+
+
+class VisitCompletionReadinessView(APIView):
+    """
+    Lists active visits and determines whether each can be completed.
+
+    OWNER: all active branches.
+    ADMIN/SUPERVISOR: their assigned branch only.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        access = get_monitoring_access(request.user)
+
+        branches = get_accessible_branches(request, access)
+        branch_ids = list(
+            branches.values_list("id", flat=True)
+        )
+
+        visits = list(
+            Visit.objects
+            .filter(
+                branch_id__in=branch_ids,
+                status__in=[
+                    Visit.Status.CHECKED_IN,
+                    Visit.Status.IN_PROGRESS,
+                ],
+            )
+            .select_related("vehicle", "branch")
+            .order_by("-arrival_time", "-id")
+        )
+
+        visit_ids = [visit.id for visit in visits]
+
+        services = list(
+            VisitService.objects
+            .filter(
+                visit_id__in=visit_ids,
+                is_removed=False,
+            )
+            .order_by("id")
+        )
+
+        service_ids = [service.id for service in services]
+
+        assignments = list(
+            ServiceAssignment.objects
+            .filter(
+                visit_service_id__in=service_ids,
+                is_active=True,
+            )
+            .order_by("id")
+        )
+
+        services_by_visit = {}
+        active_assignment_counts = {}
+        pending_assignment_counts = {}
+
+        for service in services:
+            services_by_visit.setdefault(
+                service.visit_id, []
+            ).append(service)
+
+        for assignment in assignments:
+            service_id = assignment.visit_service_id
+
+            active_assignment_counts[service_id] = (
+                active_assignment_counts.get(service_id, 0) + 1
+            )
+
+            if (
+                assignment.completed_at is None
+                or assignment.completed_by_id is None
+            ):
+                pending_assignment_counts[service_id] = (
+                    pending_assignment_counts.get(service_id, 0) + 1
+                )
+
+        results = []
+
+        for visit in visits:
+            visit_services = services_by_visit.get(
+                visit.id, []
+            )
+
+            unassigned_services = [
+                service
+                for service in visit_services
+                if active_assignment_counts.get(service.id, 0) == 0
+            ]
+
+            pending_assignments = sum(
+                pending_assignment_counts.get(service.id, 0)
+                for service in visit_services
+            )
+
+            service_count = len(visit_services)
+            unassigned_count = len(unassigned_services)
+
+            can_finalize = (
+                service_count > 0
+                and unassigned_count == 0
+                and pending_assignments == 0
+            )
+
+            blockers = []
+
+            if service_count == 0:
+                blockers.append("No active services have been added.")
+
+            if unassigned_count:
+                blockers.append(
+                    f"{unassigned_count} service(s) have no active staff assignment."
+                )
+
+            if pending_assignments:
+                blockers.append(
+                    f"{pending_assignments} active assignment(s) are not completed."
+                )
+
+            results.append({
+                "visit_id": visit.id,
+                "branch_id": visit.branch_id,
+                "branch_name": visit.branch.name,
+                "vehicle_registration": (
+                    visit.vehicle.registration_number
+                ),
+                "vehicle_make_model": visit.vehicle.make_model,
+                "visit_status": visit.status,
+                "arrival_time": visit.arrival_time,
+                "service_count": service_count,
+                "unassigned_service_count": unassigned_count,
+                "active_assignment_count": sum(
+                    active_assignment_counts.get(service.id, 0)
+                    for service in visit_services
+                ),
+                "pending_assignment_count": pending_assignments,
+                "can_finalize": can_finalize,
+                "blockers": blockers,
+            })
+
+        return Response({
+            "role": access["role"],
+            "count": len(results),
+            "ready_count": sum(
+                1 for item in results if item["can_finalize"]
+            ),
+            "visits": results,
+        }, status=status.HTTP_200_OK)

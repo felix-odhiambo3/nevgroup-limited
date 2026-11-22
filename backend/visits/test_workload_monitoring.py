@@ -506,21 +506,20 @@ class WorkloadMonitoringTests(APITestCase):
         )
 
     def test_supervisor_reassignment_preserves_original_shift(self):
-        original_assignment = ServiceAssignment.objects.create(
+        original_assignment = ServiceAssignment.objects.get(
             visit_service=self.visit_service,
             staff=self.cleaner_profile,
-            assigned_by=self.supervisor,
-            shift="NIGHT",
+            is_active=True,
         )
+        original_assignment.shift = "NIGHT"
+        original_assignment.save(update_fields=["shift"])
 
         self.authenticate()
 
         response = self.client.post(
             reverse(
                 "supervisor_reassign_assignment",
-                kwargs={
-                    "assignment_id": original_assignment.pk,
-                },
+                kwargs={"assignment_id": original_assignment.pk},
             ),
             {
                 "new_staff_id": self.replacement_cleaner_profile.pk,
@@ -529,32 +528,21 @@ class WorkloadMonitoringTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_200_OK,
-            response.data,
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
 
         original_assignment.refresh_from_db()
-
         self.assertFalse(original_assignment.is_active)
         self.assertEqual(original_assignment.shift, "NIGHT")
 
         replacement = ServiceAssignment.objects.get(
             pk=response.data["new_assignment"]["id"],
         )
-
-        self.assertEqual(
-            replacement.staff_id,
-            self.replacement_cleaner_profile.pk,
-        )
-
+        self.assertEqual(replacement.staff_id, self.replacement_cleaner_profile.pk)
         self.assertEqual(replacement.shift, "NIGHT")
         self.assertEqual(
             response.data["new_assignment"]["shift_display"],
             "Night",
         )
-
     def test_invalid_work_date_is_rejected(self):
         self.authenticate()
 

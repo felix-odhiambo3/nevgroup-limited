@@ -28,6 +28,8 @@ import {
   removeSupervisorAssignment,
   getAssignmentCorrections,
   correctCompletedAssignment,
+  getVisitCompletionReadiness,
+  completeVisit,
 } from '../api/visits'
 
 import { getBranchStaff } from '../api/staffOperations'
@@ -705,6 +707,10 @@ export default function MonitorAssignmentsPage() {
 
   const [assignments, setAssignments] = useState([])
   const [branchName, setBranchName] = useState('')
+  const [completionVisits, setCompletionVisits] = useState([])
+  const [completionLoading, setCompletionLoading] = useState(true)
+  const [completionError, setCompletionError] = useState('')
+  const [busyVisitId, setBusyVisitId] = useState(null)
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -736,14 +742,16 @@ export default function MonitorAssignmentsPage() {
   // LOAD ASSIGNMENTS
   // --------------------------------------------------
 
-  const loadAssignments = useCallback(async (showRefresh = false) => {
+    const loadAssignments = useCallback(async (showRefresh = false) => {
     if (showRefresh) {
       setRefreshing(true)
     } else {
       setLoading(true)
     }
 
+    setCompletionLoading(true)
     setError('')
+    setCompletionError('')
 
     try {
       const result = await getSupervisorAssignments({
@@ -752,11 +760,20 @@ export default function MonitorAssignmentsPage() {
 
       setAssignments(result.assignments || [])
       setBranchName(result.branch_name || '')
+
+      try {
+        const readiness = await getVisitCompletionReadiness()
+        setCompletionVisits(readiness.visits || [])
+      } catch (readinessError) {
+        setCompletionVisits([])
+        setCompletionError(getErrorMessage(readinessError))
+      }
     } catch (loadError) {
       setError(getErrorMessage(loadError))
     } finally {
       setLoading(false)
       setRefreshing(false)
+      setCompletionLoading(false)
     }
   }, [])
 
@@ -954,6 +971,38 @@ export default function MonitorAssignmentsPage() {
       setError(getErrorMessage(actionError))
     } finally {
       setBusyAssignmentId(null)
+    }
+  }
+  // --------------------------------------------------
+  // COMPLETE ENTIRE VISIT AND GENERATE INVOICE
+  // --------------------------------------------------
+
+  const handleCompleteVisit = async (visit) => {
+    if (!visit.can_finalize) return
+
+    const confirmed = window.confirm(
+      `Complete visit #${visit.visit_id} for ${visit.vehicle_registration}?\n\nThis will finalize the entire visit, generate its invoice and calculate the cleaner commissions. This action should only be taken after verifying all services are complete.`
+    )
+
+    if (!confirmed) return
+
+    setBusyVisitId(visit.visit_id)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await completeVisit(visit.visit_id)
+
+      setSuccess(
+        result.detail ||
+        `Visit #${visit.visit_id} completed and invoice generated successfully.`
+      )
+
+      await loadAssignments(true)
+    } catch (actionError) {
+      setError(getErrorMessage(actionError))
+    } finally {
+      setBusyVisitId(null)
     }
   }
 
@@ -1243,6 +1292,144 @@ export default function MonitorAssignmentsPage() {
           icon={History}
           description="Preserved in assignment history"
         />
+      </section>
+
+            {/* VISIT COMPLETION AND INVOICE GENERATION */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Visit Completion & Invoicing
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Review completed assignments before finalizing a vehicle visit.
+            </p>
+          </div>
+
+          <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-800">
+            {completionVisits.filter((visit) => visit.can_finalize).length} ready
+          </span>
+        </div>
+
+        {completionError && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            Could not load visit readiness: {completionError}
+          </div>
+        )}
+
+        {completionLoading ? (
+          <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+            <Loader2 size={19} className="mr-2 animate-spin" />
+            Checking visit completion readiness...
+          </div>
+        ) : completionVisits.length === 0 ? (
+          <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-8 text-center">
+            <CarFront size={30} className="mx-auto text-slate-400" />
+            <p className="mt-2 font-medium text-slate-800">
+              No active visits awaiting completion
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Active vehicle visits will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {completionVisits.map((visit) => (
+              <article
+                key={visit.visit_id}
+                className="rounded-xl border border-slate-200 p-4"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-slate-900">
+                        {visit.vehicle_registration}
+                      </h3>
+
+                      {visit.can_finalize ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">
+                          <CheckCircle2 size={13} />
+                          Ready to finalize
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                          <AlertCircle size={13} />
+                          Not ready
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-1 text-sm text-slate-600">
+                      {visit.vehicle_make_model || 'Vehicle details unavailable'}
+                      {' · '}
+                      Visit #{visit.visit_id}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {visit.branch_name}
+                      {' · '}
+                      Arrived {formatDateTime(visit.arrival_time)}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                      <span>
+                        <strong>{visit.service_count}</strong> services
+                      </span>
+                      <span>
+                        <strong>{visit.active_assignment_count}</strong> active assignments
+                      </span>
+                      <span className={
+                        visit.pending_assignment_count > 0
+                          ? 'font-semibold text-amber-700'
+                          : 'text-green-700'
+                      }>
+                        <strong>{visit.pending_assignment_count}</strong> pending
+                      </span>
+                    </div>
+
+                    {!visit.can_finalize && visit.blockers?.length > 0 && (
+                      <div className="mt-3 rounded-lg bg-amber-50 p-3">
+                        <p className="text-xs font-semibold text-amber-900">
+                          Outstanding requirements
+                        </p>
+
+                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-amber-800">
+                          {visit.blockers.map((blocker, index) => (
+                            <li key={index}>{blocker}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteVisit(visit)}
+                      disabled={
+                        !visit.can_finalize ||
+                        busyVisitId === visit.visit_id
+                      }
+                      className="inline-flex w-full items-center justify-center rounded-lg bg-green-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto"
+                    >
+                      {busyVisitId === visit.visit_id ? (
+                        <>
+                          <Loader2 size={16} className="mr-2 animate-spin" />
+                          Finalizing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={16} className="mr-2" />
+                          Finalize & Generate Invoice
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">

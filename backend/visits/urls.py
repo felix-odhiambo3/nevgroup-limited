@@ -24,6 +24,7 @@ from .monitoring import (
 from .workload_monitoring import (
     BranchWideMonitorAssignmentsView,
     WorkloadReportView,
+    VisitCompletionReadinessView,
 )
 
 
@@ -51,6 +52,12 @@ urlpatterns = [
         WorkloadReportView.as_view(),
         name="visit_workload_report",
     ),
+
+    path(
+    "completion-readiness/",
+    VisitCompletionReadinessView.as_view(),
+    name="visit_completion_readiness",
+),
 
     path(
         "monitor-assignments/<int:assignment_id>/reassign/",

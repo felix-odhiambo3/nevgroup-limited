@@ -185,3 +185,16 @@ export const completeServiceAssignment = async (assignmentId) => {
 
   return response.data
 }
+
+export const getVisitCompletionReadiness = async () => {
+  const response = await api.get('visits/completion-readiness/')
+  return response.data
+}
+
+export const completeVisit = async (visitId, completionData = {}) => {
+  const response = await api.post(
+    `visits/${visitId}/complete/`,
+    completionData
+  )
+  return response.data
+}
