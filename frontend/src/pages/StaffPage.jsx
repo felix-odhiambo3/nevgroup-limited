@@ -551,20 +551,36 @@ export default function StaffPage() {
   }
 
   const openRegistration = () => {
-    if (!canRegisterStaff) return
+  if (!canRegisterStaff) return
 
-    setForm({
-      ...initialForm,
-      date_joined: getToday(),
-    })
-
-    setFormError('')
-    setSuccessMessage('')
-    setShowPassword(false)
+  if (isSupervisor && !supervisorProfile?.branch) {
+    setFormError(
+      supervisorProfileLoading
+        ? 'Your assigned branch is still loading. Please try again shortly.'
+        : supervisorProfileError || 'Unable to identify your assigned branch.'
+    )
     setShowModal(true)
-
-    if (branches.length === 0) loadBranches()
+    return
   }
+
+  setForm({
+    ...initialForm,
+    date_joined: getToday(),
+    ...(isSupervisor
+      ? {
+          role: 'CLEANER',
+          branch: String(supervisorProfile.branch),
+        }
+      : {}),
+  })
+
+  setFormError('')
+  setSuccessMessage('')
+  setShowPassword(false)
+  setShowModal(true)
+
+  if (!isSupervisor && branches.length === 0) loadBranches()
+}
 
   const closeRegistration = () => {
     if (submitting) return
@@ -582,10 +598,18 @@ export default function StaffPage() {
     setFormError('')
     setSuccessMessage('')
 
-    if (!form.branch) {
-      setFormError('Please select a branch.')
-      return
-    }
+    const assignedBranch = isSupervisor
+  ? supervisorProfile?.branch
+  : form.branch
+
+if (!assignedBranch) {
+  setFormError(
+    isSupervisor
+      ? 'Your assigned branch could not be identified. Please contact the administrator.'
+      : 'Please select a branch.'
+  )
+  return
+}
 
     if (form.password.length < 8) {
       setFormError('Password must contain at least 8 characters.')
@@ -598,9 +622,10 @@ export default function StaffPage() {
     }
 
     const payload = {
-      ...form,
-      branch: Number(form.branch),
-    }
+  ...form,
+  role: isSupervisor ? 'CLEANER' : form.role,
+  branch: Number(assignedBranch),
+}
 
     setSubmitting(true)
 
@@ -2297,18 +2322,25 @@ export default function StaffPage() {
                         Staff Role *
                       </label>
                       <select
-                        id="role"
-                        name="role"
-                        value={form.role}
-                        onChange={updateField}
-                        className={inputClass}
-                        required
-                      >
-                        <option value="CLEANER">Cleaner</option>
-                        <option value="DETAILER">Detailer</option>
-                        <option value="SUPERVISOR">Supervisor</option>
-                        <option value="ACCOUNTS">Accounts</option>
-                      </select>
+  id="role"
+  name="role"
+  value={form.role}
+  onChange={updateField}
+  className={inputClass}
+  required
+  disabled={isSupervisor}
+>
+  {isSupervisor ? (
+    <option value="CLEANER">Cleaner</option>
+  ) : (
+    <>
+      <option value="CLEANER">Cleaner</option>
+      <option value="DETAILER">Detailer</option>
+      <option value="SUPERVISOR">Supervisor</option>
+      <option value="ACCOUNTS">Accounts</option>
+    </>
+  )}
+</select>
                     </div>
 
                     <div>
@@ -2362,7 +2394,12 @@ export default function StaffPage() {
 
                 <button
                   type="submit"
-                  disabled={submitting || branchesLoading || branches.length === 0}
+                  disabled={
+  submitting ||
+  (isSupervisor
+    ? supervisorProfileLoading || !supervisorProfile?.branch
+    : branchesLoading || branches.length === 0)
+}
                   className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {submitting ? (
