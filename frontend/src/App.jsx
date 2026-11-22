@@ -1,4 +1,4 @@
-
+import CommissionManagementPage from './pages/CommissionManagementPage'
 import {
   BrowserRouter,
   Routes,
@@ -118,6 +118,21 @@ function AppRoutes() {
 
         <Route path="/invoices" element={<InvoicePage />} />
         <Route path="/make-payment" element={<MakePaymentPage />} />
+
+        <Route
+           path="/commissions"
+           element={<CommissionManagementPage />}
+         />
+
+       <Route
+          path="/commission-payouts"
+          element={<CommissionManagementPage />}
+       />
+
+       <Route
+           path="/commission-adjustments"
+           element={<CommissionManagementPage />}
+        />
 
         <Route
           path="/branch-gps-settings"

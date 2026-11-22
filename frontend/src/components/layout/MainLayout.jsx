@@ -15,6 +15,9 @@ const pageTitles = {
   '/check-in': 'Vehicle Check-in',
   '/monitor-assignments': 'Monitor Assignments',
   '/invoices': 'Invoice Management',
+  '/commissions': 'Cleaner Commissions',
+  '/commission-payouts': 'Commission Payouts',
+  '/commission-adjustments': 'Commission Adjustments',
 }
 
 export default function MainLayout() {
