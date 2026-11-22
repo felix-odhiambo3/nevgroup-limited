@@ -530,8 +530,9 @@ export default function StaffPage() {
 
     try {
       await resetStaffPassword(resetMember.user, {
-        new_password: resetPassword,
-      })
+      new_password: resetPassword,
+      confirm_password: confirmResetPassword,
+    })
 
       const staffLabel = resetMember.staff_number
         ? `staff number ${resetMember.staff_number}`
