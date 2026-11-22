@@ -314,6 +314,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
             'customer',
             'invoice_number',
             'status',
+            'is_provisional',
             'customer_name',
             'customer_phone',
             'branch_address',

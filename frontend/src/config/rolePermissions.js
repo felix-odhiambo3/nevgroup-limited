@@ -108,6 +108,7 @@ export const ROUTE_PERMISSIONS = Object.freeze({
 
   // Financial management
   '/invoices': PAYMENT_VIEW_ROLES,
+  '/make-payment': PAYMENT_VIEW_ROLES,
   '/collections': PAYMENT_VIEW_ROLES,
   '/reversals': GLOBAL_PAYMENT_ROLES,
 

@@ -27,6 +27,7 @@ import MyDayPage from './pages/MyDayPage'
 import CheckInPage from './pages/CheckInPage'
 import MonitorAssignmentsPage from './pages/MonitorAssignmentsPage'
 import InvoicePage from './pages/InvoicePage'
+import MakePaymentPage from './pages/MakePaymentPage'
 
 import MainLayout from './components/layout/MainLayout'
 
@@ -115,6 +116,7 @@ function AppRoutes() {
         />
 
         <Route path="/invoices" element={<InvoicePage />} />
+        <Route path="/make-payment" element={<MakePaymentPage />} />
       </Route>
 
       <Route

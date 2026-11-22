@@ -101,6 +101,7 @@ class StaffBranchPickerSerializer(
         read_only=True
     )
 
+    current_shift = serializers.SerializerMethodField()
     class Meta:
         model = StaffProfile
         fields = [

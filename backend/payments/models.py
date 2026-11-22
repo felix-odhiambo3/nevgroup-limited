@@ -154,6 +154,7 @@ class Invoice(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT,
     )
+    is_provisional = models.BooleanField(default=False)
     customer_name = models.CharField(max_length=150, blank=True)
     customer_phone = models.CharField(max_length=20, blank=True)
     branch_name = models.CharField(max_length=150)

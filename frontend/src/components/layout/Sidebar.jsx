@@ -89,6 +89,11 @@ const navigation = [
         icon: FileText,
       },
       {
+        name: 'Make Payment',
+        path: '/make-payment',
+        icon: Wallet,
+      },
+      {
         name: 'Payment Collections',
         path: '/collections',
         icon: Receipt,
