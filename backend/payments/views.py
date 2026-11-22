@@ -25,6 +25,7 @@ from payments.models import (
     CleanerCommission,
     CommissionPayout,
     CommissionAdjustment,
+    BranchTaxConfiguration,
 )
 from payments.serializers import (
     InvoiceReadSerializer,
@@ -37,6 +38,8 @@ from payments.serializers import (
     CommissionPayoutCreateSerializer,
     CommissionAdjustmentReadSerializer,
     CommissionAdjustmentCreateSerializer,
+    BranchTaxConfigurationReadSerializer,
+    BranchTaxConfigurationCreateSerializer,
 )
 from payments.workflows import (
     record_payment_collection,
@@ -158,6 +161,20 @@ def ensure_adjustment_write_access(user):
     if user.role not in COMMISSION_ADJUSTMENT_WRITE_ROLES:
         raise PermissionDenied(
             'Only OWNER and ADMIN can adjust earned commissions.'
+        )
+def ensure_tax_configuration_access(user):
+    if user.is_superuser:
+        return
+
+    if (
+        not user.is_active
+        or user.role not in {
+            User.Role.OWNER,
+            User.Role.ADMIN,
+        }
+    ):
+        raise PermissionDenied(
+            'Only OWNER and ADMIN can manage VAT configuration.'
         )
 
 def get_accessible_invoice_queryset(user):
@@ -1124,3 +1141,154 @@ class CommissionAdjustmentListCreateView(APIView):
 
         output = CommissionAdjustmentReadSerializer(adjustment)
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+class BranchTaxConfigurationListCreateView(APIView):
+    """
+    GET  /api/payments/tax-configurations/
+    POST /api/payments/tax-configurations/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        ensure_tax_configuration_access(request.user)
+
+        branches = Branch.objects.order_by('name')
+
+        branch_id = request.query_params.get('branch')
+
+        configurations = (
+            BranchTaxConfiguration.objects
+            .select_related('branch', 'created_by')
+            .order_by('branch__name', '-effective_from')
+        )
+
+        if branch_id:
+            if not branch_id.isdigit():
+                raise ValidationError({
+                    'branch': 'Provide a valid branch ID.'
+                })
+
+            configurations = configurations.filter(
+                branch_id=branch_id
+            )
+
+        branch_data = [
+            {
+                'id': branch.id,
+                'name': branch.name,
+                'code': branch.code,
+                'is_active': branch.is_active,
+            }
+            for branch in branches
+        ]
+
+        serializer = BranchTaxConfigurationReadSerializer(
+            configurations,
+            many=True,
+        )
+
+        return Response({
+            'branches': branch_data,
+            'configurations': serializer.data,
+            'today': timezone.localdate().isoformat(),
+        })
+
+    def post(self, request):
+        ensure_tax_configuration_access(request.user)
+
+        input_serializer = BranchTaxConfigurationCreateSerializer(
+            data=request.data,
+        )
+        input_serializer.is_valid(raise_exception=True)
+
+        data = input_serializer.validated_data
+        effective_from = data['effective_from']
+        today = timezone.localdate()
+
+        if effective_from < today:
+            raise ValidationError({
+                'effective_from': (
+                    'VAT configuration cannot be backdated. '
+                    'Choose today or a future date.'
+                )
+            })
+
+        try:
+            with transaction.atomic():
+                branch = get_object_or_404(
+                    Branch.objects.select_for_update(),
+                    pk=data['branch'],
+                )
+
+                existing_configs = list(
+                    BranchTaxConfiguration.objects
+                    .select_for_update()
+                    .filter(branch=branch)
+                    .order_by('effective_from')
+                )
+
+                previous_open_config = None
+
+                for existing in existing_configs:
+                    if existing.effective_from >= effective_from:
+                        raise ValidationError({
+                            'effective_from': (
+                                'A VAT configuration already exists '
+                                'with this date or a later date. '
+                                'Choose a later effective date.'
+                            )
+                        })
+
+                    if existing.effective_until is None:
+                        previous_open_config = existing
+
+                    elif existing.effective_until >= effective_from:
+                        raise ValidationError({
+                            'effective_from': (
+                                'The selected date overlaps an existing '
+                                'VAT configuration period.'
+                            )
+                        })
+
+                if previous_open_config:
+                    previous_open_config.effective_until = (
+                        effective_from - timedelta(days=1)
+                    )
+                    previous_open_config.save()
+
+                configuration = BranchTaxConfiguration(
+                    branch=branch,
+                    is_vat_registered=data['is_vat_registered'],
+                    vat_rate=data.get('vat_rate'),
+                    tax_registration_number=data[
+                        'tax_registration_number'
+                    ],
+                    legal_business_name=data['legal_business_name'],
+                    effective_from=effective_from,
+                    effective_until=None,
+                    created_by=request.user,
+                )
+
+                configuration.full_clean()
+                configuration.save()
+
+        except DjangoValidationError as exc:
+            convert_workflow_validation_error(exc)
+
+        except IntegrityError:
+            raise ValidationError({
+                'effective_from': (
+                    'A conflicting VAT configuration already exists. '
+                    'Refresh the page and try again.'
+                )
+            })
+
+        output = BranchTaxConfigurationReadSerializer(
+            configuration,
+        )
+
+        return Response(
+            output.data,
+            status=status.HTTP_201_CREATED,
+        )

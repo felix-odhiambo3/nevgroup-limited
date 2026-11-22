@@ -66,6 +66,11 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.DETAILER,
   ],
 
+  '/vat-configuration': [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+  ],
+
   '/staff': [
     ROLES.OWNER,
     ROLES.ADMIN,
@@ -81,11 +86,10 @@ export const ROUTE_PERMISSIONS = Object.freeze({
     ROLES.ADMIN,
   ],
   
-    '/branch-gps-settings': [
-    ROLES.OWNER,
-    ROLES.ADMIN,
-  ],
-
+  '/vat-configuration': [
+  ROLES.OWNER,
+  ROLES.ADMIN,
+ ],
   '/attendance': [
     ROLES.OWNER,
     ROLES.ADMIN,

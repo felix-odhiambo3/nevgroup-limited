@@ -152,3 +152,23 @@ export const createCommissionAdjustment = async (
   )
   return response.data
 }
+
+// --------------------------------------------------
+// VAT CONFIGURATION
+// --------------------------------------------------
+
+export const getTaxConfigurations = async (params = {}) => {
+  const response = await api.get(
+    'payments/tax-configurations/',
+    { params }
+  )
+  return response.data
+}
+
+export const createTaxConfiguration = async (payload) => {
+  const response = await api.post(
+    'payments/tax-configurations/',
+    payload
+  )
+  return response.data
+}

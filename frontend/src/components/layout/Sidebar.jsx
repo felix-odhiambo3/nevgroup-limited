@@ -18,6 +18,7 @@ import {
   TrendingUp,
   BadgeDollarSign,
   MapPin,
+  Percent,
 } from 'lucide-react'
 
 import { useAuth } from '../../features/auth/AuthContext'
@@ -131,6 +132,11 @@ const navigation = [
         name: 'Branch GPS Settings',
         path: '/branch-gps-settings',
         icon: MapPin,
+      },
+      {
+        name: 'VAT Configuration',
+        path: '/vat-configuration',
+        icon: Percent,
       },
     ],
   },

@@ -13,6 +13,7 @@ from payments.models import (
     CleanerCommission,
     CommissionPayout,
     CommissionAdjustment,
+    BranchTaxConfiguration,
 )
 from payments.workflows import get_invoice_payment_summary
 from payments.services import ZERO
@@ -533,3 +534,107 @@ class CommissionAdjustmentCreateSerializer(serializers.Serializer):
                 'An adjustment cannot be zero.'
             )
         return value
+
+
+class BranchTaxConfigurationReadSerializer(serializers.ModelSerializer):
+    """Read-only VAT configuration and its history."""
+
+    branch_name = serializers.CharField(
+        source='branch.name',
+        read_only=True,
+    )
+    created_by_name = serializers.CharField(
+        source='created_by.get_full_name',
+        read_only=True,
+    )
+    is_current = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BranchTaxConfiguration
+        fields = [
+            'id',
+            'branch',
+            'branch_name',
+            'is_vat_registered',
+            'vat_rate',
+            'tax_registration_number',
+            'legal_business_name',
+            'effective_from',
+            'effective_until',
+            'created_by',
+            'created_by_name',
+            'created_at',
+            'is_current',
+        ]
+        read_only_fields = fields
+
+    def get_is_current(self, obj):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        return (
+            obj.effective_from <= today
+            and (
+                obj.effective_until is None
+                or obj.effective_until >= today
+            )
+        )
+
+
+class BranchTaxConfigurationCreateSerializer(serializers.Serializer):
+    """Validate a new branch VAT configuration."""
+
+    branch = serializers.IntegerField(min_value=1)
+
+    is_vat_registered = serializers.BooleanField()
+
+    vat_rate = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        min_value=Decimal('0.00'),
+        max_value=Decimal('100.00'),
+        required=False,
+        allow_null=True,
+    )
+
+    tax_registration_number = serializers.CharField(
+        max_length=50,
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+
+    legal_business_name = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default='',
+    )
+
+    effective_from = serializers.DateField()
+
+    def validate(self, attrs):
+        attrs['tax_registration_number'] = (
+            attrs.get('tax_registration_number', '').strip()
+        )
+        attrs['legal_business_name'] = (
+            attrs.get('legal_business_name', '').strip()
+        )
+
+        if attrs['is_vat_registered'] and attrs.get('vat_rate') is None:
+            raise serializers.ValidationError({
+                'vat_rate': 'A VAT rate is required when VAT registered.'
+            })
+
+        if (
+            not attrs['is_vat_registered']
+            and attrs.get('vat_rate') is not None
+        ):
+            raise serializers.ValidationError({
+                'vat_rate': (
+                    'A VAT rate cannot be set when the branch '
+                    'is not VAT registered.'
+                )
+            })
+
+        return attrs

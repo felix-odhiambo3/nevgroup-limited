@@ -28,6 +28,7 @@ import MyDayPage from './pages/MyDayPage'
 import CheckInPage from './pages/CheckInPage'
 import MonitorAssignmentsPage from './pages/MonitorAssignmentsPage'
 import BranchGPSSettingsPage from './pages/BranchGPSSettingsPage'
+import VATConfigurationPage from './pages/VATConfigurationPage'
 import InvoicePage from './pages/InvoicePage'
 import MakePaymentPage from './pages/MakePaymentPage'
 import PaymentCollectionsPage from './pages/PaymentCollectionsPage'
@@ -165,8 +166,8 @@ function AppRoutes() {
 
         {/* Revenue */}
         <Route
-            path="/revenue"
-            element={<RevenuePage />}
+          path="/revenue"
+          element={<RevenuePage />}
         />
 
         {/* Cleaner commissions */}
@@ -189,6 +190,12 @@ function AppRoutes() {
         <Route
           path="/branch-gps-settings"
           element={<BranchGPSSettingsPage />}
+        />
+
+        {/* VAT configuration */}
+        <Route
+          path="/vat-configuration"
+          element={<VATConfigurationPage />}
         />
       </Route>
 

@@ -1,5 +1,6 @@
 
 from django.urls import path
+from payments.views import BranchTaxConfigurationListCreateView
 
 from payments.views import (
     InvoiceListView,
@@ -18,6 +19,11 @@ from payments.views import (
 )
 
 urlpatterns = [
+     path(
+       'tax-configurations/',
+       BranchTaxConfigurationListCreateView.as_view(),
+       name='payment-tax-configurations',
+    ),
     path(
         'invoices/',
         InvoiceListView.as_view(),
