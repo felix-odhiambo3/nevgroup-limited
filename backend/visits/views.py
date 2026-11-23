@@ -248,13 +248,13 @@ class MyDayView(APIView):
         })
 
 
+
 class ServiceAssignmentCompleteView(APIView):
     """
     Allow an assigned employee to confirm their own service work.
 
-    CLEANER and DETAILER accounts may complete their own assignments.
-    Other employees and managers cannot confirm work on their behalf
-    through this self-service endpoint.
+    When this is the final outstanding assignment across the visit,
+    automatically generate the visit invoice.
     """
 
     permission_classes = [IsAuthenticated]
@@ -271,6 +271,21 @@ class ServiceAssignmentCompleteView(APIView):
 
         staff = get_active_staff_profile(request.user)
 
+        # First identify the parent visit without locking the assignment.
+        assignment_reference = get_object_or_404(
+            ServiceAssignment.objects.select_related('visit_service'),
+            pk=assignment_id,
+            staff=staff,
+            visit_service__visit__branch_id=staff.branch_id,
+        )
+
+        # Always lock the visit before locking its assignments.
+        visit = get_object_or_404(
+            Visit.objects.select_for_update(),
+            pk=assignment_reference.visit_service.visit_id,
+            branch_id=staff.branch_id,
+        )
+
         assignment = get_object_or_404(
             ServiceAssignment.objects
             .select_for_update()
@@ -281,7 +296,7 @@ class ServiceAssignmentCompleteView(APIView):
             ),
             pk=assignment_id,
             staff=staff,
-            visit_service__visit__branch_id=staff.branch_id,
+            visit_service__visit_id=visit.pk,
         )
 
         if assignment.completed_at is not None:
@@ -297,14 +312,18 @@ class ServiceAssignmentCompleteView(APIView):
                 )
             })
 
-        if assignment.visit_service.visit.status == Visit.Status.CANCELLED:
+        if visit.status == Visit.Status.CANCELLED:
             raise ValidationError({
                 'detail': 'A cancelled visit cannot be completed.'
             })
 
+        if visit.status == Visit.Status.COMPLETED:
+            raise ValidationError({
+                'detail': 'This visit has already been completed.'
+            })
+
         assignment.completed_at = timezone.now()
         assignment.completed_by = request.user
-
         assignment.save(
             update_fields=[
                 'completed_at',
@@ -312,15 +331,35 @@ class ServiceAssignmentCompleteView(APIView):
             ]
         )
 
+        from .auto_invoicing import auto_finalize_visit_if_ready
+
+        invoice = auto_finalize_visit_if_ready(
+            visit_id=visit.pk,
+            user=request.user,
+        )
+
+        response_data = {
+            'detail': 'Your assignment has been marked as completed.',
+            'assignment': MyDayAssignmentSerializer(
+                assignment,
+            ).data,
+            'invoice_generated': invoice is not None,
+            'invoice': None,
+        }
+
+        if invoice is not None:
+            response_data['invoice'] = {
+                'id': invoice.pk,
+                'invoice_number': invoice.invoice_number,
+                'status': invoice.status,
+                'total_amount': str(invoice.total_amount),
+            }
+
         return Response(
-            {
-                'detail': 'Your assignment has been marked as completed.',
-                'assignment': MyDayAssignmentSerializer(
-                    assignment,
-                ).data,
-            },
+            response_data,
             status=status.HTTP_200_OK,
         )
+
 
 
 class VisitListCreateView(generics.ListCreateAPIView):

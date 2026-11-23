@@ -730,15 +730,36 @@ class SupervisorReassignView(SupervisorMonitorBaseView):
 # SUPERVISOR COMPLETE
 # --------------------------------------------------
 
+
 class SupervisorCompleteAssignmentView(SupervisorMonitorBaseView):
     """
     Supervisor confirms that an assigned employee's work is complete.
-    completed_by records the supervisor who made the confirmation.
+
+    If this is the final outstanding assignment across the visit,
+    automatically generate the visit invoice.
     """
 
     @transaction.atomic
     def post(self, request, assignment_id):
         profile = self.get_supervisor_profile(request)
+
+        # Identify the visit before taking any assignment lock.
+        assignment_reference = self.get_owned_assignment(
+            request,
+            profile,
+            assignment_id,
+            lock=False,
+        )
+
+        visit_id = assignment_reference.visit_service.visit_id
+
+        # Lock the parent visit first, using the same lock order as
+        # employee completion.
+        visit = get_object_or_404(
+            Visit.objects.select_for_update(),
+            pk=visit_id,
+            branch_id=profile.branch_id,
+        )
 
         assignment = self.get_owned_assignment(
             request,
@@ -746,6 +767,11 @@ class SupervisorCompleteAssignmentView(SupervisorMonitorBaseView):
             assignment_id,
             lock=True,
         )
+
+        if assignment.visit_service.visit_id != visit.pk:
+            raise ValidationError({
+                'detail': 'The assignment visit has changed. Please retry.'
+            })
 
         if not assignment.is_active:
             raise ValidationError({
@@ -757,25 +783,51 @@ class SupervisorCompleteAssignmentView(SupervisorMonitorBaseView):
                 'detail': 'This assignment has already been completed.'
             })
 
-        if assignment.visit_service.visit.status == Visit.Status.CANCELLED:
+        if visit.status == Visit.Status.CANCELLED:
             raise ValidationError({
                 'detail': 'A cancelled visit cannot be completed.'
             })
 
+        if visit.status == Visit.Status.COMPLETED:
+            raise ValidationError({
+                'detail': 'This visit has already been completed.'
+            })
+
         assignment.completed_at = timezone.now()
         assignment.completed_by = request.user
-
         assignment.save(update_fields=[
             'completed_at',
             'completed_by',
         ])
 
-        return Response({
+        from .auto_invoicing import auto_finalize_visit_if_ready
+
+        invoice = auto_finalize_visit_if_ready(
+            visit_id=visit.pk,
+            user=request.user,
+        )
+
+        response_data = {
             'detail': 'Assignment marked as completed by the supervisor.',
             'assignment': MonitorAssignmentSerializer(
                 assignment,
             ).data,
-        }, status=status.HTTP_200_OK)
+            'invoice_generated': invoice is not None,
+            'invoice': None,
+        }
+
+        if invoice is not None:
+            response_data['invoice'] = {
+                'id': invoice.pk,
+                'invoice_number': invoice.invoice_number,
+                'status': invoice.status,
+                'total_amount': str(invoice.total_amount),
+            }
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
 
 
 # --------------------------------------------------

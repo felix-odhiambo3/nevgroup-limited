@@ -1,4 +1,6 @@
 
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 
@@ -9,7 +11,6 @@ from staff.models import StaffProfile
 
 
 class Visit(models.Model):
-
     class Status(models.TextChoices):
         CHECKED_IN = 'CHECKED_IN', 'Checked In'
         IN_PROGRESS = 'IN_PROGRESS', 'In Progress'
@@ -19,34 +20,41 @@ class Visit(models.Model):
     vehicle = models.ForeignKey(
         Vehicle,
         on_delete=models.PROTECT,
-        related_name='visits'
+        related_name='visits',
     )
-
     branch = models.ForeignKey(
         Branch,
         on_delete=models.PROTECT,
-        related_name='visits'
+        related_name='visits',
     )
-
     checked_in_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name='vehicle_checkins'
+        related_name='vehicle_checkins',
     )
-
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
-        default=Status.CHECKED_IN
+        default=Status.CHECKED_IN,
     )
-
     arrival_time = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     plastic_mat_count = models.PositiveIntegerField(default=0)
     woolen_mat_count = models.PositiveIntegerField(default=0)
-
     comment = models.TextField(blank=True)
+
+    # Saved bargaining discount for the entire visit.
+    bargaining_discount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+    )
+    discount_reason = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -59,75 +67,67 @@ class Visit(models.Model):
 
 
 class VisitService(models.Model):
-
     visit = models.ForeignKey(
         Visit,
         on_delete=models.PROTECT,
-        related_name='visit_services'
+        related_name='visit_services',
     )
-
     service = models.ForeignKey(
         Service,
         on_delete=models.PROTECT,
-        related_name='visit_records'
+        related_name='visit_records',
     )
-
     service_name = models.CharField(max_length=150)
     service_code = models.CharField(max_length=30)
     service_category = models.CharField(max_length=20)
-
-    # Historical snapshot of the pricing method used.
     pricing_mode = models.CharField(
         max_length=20,
         choices=Service.PricingMode.choices,
-        default=Service.PricingMode.FIXED
+        default=Service.PricingMode.FIXED,
     )
-
-    # Historical snapshot of the vehicle category used for pricing.
     vehicle_category_name = models.CharField(
         max_length=80,
         blank=True,
-        default=''
+        default='',
     )
-
-    # Actual price charged for this service on this visit.
     original_price = models.DecimalField(
         max_digits=10,
-        decimal_places=2
+        decimal_places=2,
+    )
+
+    # Saved loyalty discount for this particular service.
+    loyalty_discount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
     )
 
     zero_price_reason = models.CharField(
         max_length=255,
         blank=True,
-        default=''
+        default='',
     )
-
     duration_minutes = models.PositiveIntegerField(
         null=True,
-        blank=True
+        blank=True,
     )
-
     requires_timer = models.BooleanField(default=True)
-
     added_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name='added_visit_services'
+        related_name='added_visit_services',
     )
-
     added_at = models.DateTimeField(auto_now_add=True)
 
     is_removed = models.BooleanField(default=False)
     removed_at = models.DateTimeField(null=True, blank=True)
-
     removed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name='removed_visit_services',
         null=True,
-        blank=True
+        blank=True,
     )
-
     removal_reason = models.TextField(blank=True)
 
     class Meta:
@@ -138,7 +138,6 @@ class VisitService(models.Model):
 
 
 class ServiceAssignment(models.Model):
-
     class Shift(models.TextChoices):
         DAY = 'DAY', 'Day'
         NIGHT = 'NIGHT', 'Night'
@@ -146,83 +145,65 @@ class ServiceAssignment(models.Model):
     visit_service = models.ForeignKey(
         VisitService,
         on_delete=models.PROTECT,
-        related_name='assignments'
+        related_name='assignments',
     )
-
     staff = models.ForeignKey(
         StaffProfile,
         on_delete=models.PROTECT,
-        related_name='service_assignments'
+        related_name='service_assignments',
     )
-
-    # Historical snapshot of the shift assigned to this specific work.
-    # Nullable only to preserve legacy assignments with no reliable record.
     shift = models.CharField(
         max_length=10,
         choices=Shift.choices,
         null=True,
         blank=True,
-        default=None
+        default=None,
     )
-
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name='made_service_assignments'
+        related_name='made_service_assignments',
     )
-
     assigned_at = models.DateTimeField(auto_now_add=True)
-
-    completed_at = models.DateTimeField(
-        null=True,
-        blank=True
-    )
-
+    completed_at = models.DateTimeField(null=True, blank=True)
     completed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name='completed_service_assignments',
         null=True,
-        blank=True
+        blank=True,
     )
-
     is_active = models.BooleanField(default=True)
-
     removed_at = models.DateTimeField(null=True, blank=True)
-
     removed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name='removed_service_assignments',
         null=True,
-        blank=True
+        blank=True,
     )
-
     removal_reason = models.TextField(blank=True)
 
     class Meta:
         ordering = ['assigned_at']
-
         constraints = [
             models.UniqueConstraint(
                 fields=['visit_service', 'staff'],
                 condition=models.Q(is_active=True),
-                name='unique_active_staff_service_assignment'
+                name='unique_active_staff_service_assignment',
             ),
-
             models.CheckConstraint(
                 condition=(
                     models.Q(
                         completed_at__isnull=True,
                         completed_by__isnull=True,
                     )
-                    |
-                    models.Q(
+                    | models.Q(
                         completed_at__isnull=False,
                         completed_by__isnull=False,
                     )
                 ),
-                name='service_assignment_completion_consistency'
+                name='service_assignment_completion_consistency',
             ),
         ]
 
