@@ -1,4 +1,3 @@
-
 from decimal import Decimal
 
 from django.db.models import Sum
@@ -17,6 +16,7 @@ from payments.models import (
 )
 from payments.workflows import get_invoice_payment_summary
 from payments.services import ZERO
+
 
 class PaymentEntryInputSerializer(serializers.Serializer):
     """Validate one cash or M-PESA tender line."""
@@ -49,6 +49,7 @@ class PaymentEntryInputSerializer(serializers.Serializer):
 
         return attrs
 
+
 class PaymentCollectionCreateSerializer(serializers.Serializer):
     """Input for creating one collection and its receipt."""
 
@@ -74,6 +75,7 @@ class PaymentCollectionCreateSerializer(serializers.Serializer):
 
         return payments
 
+
 class PaymentReversalCreateSerializer(serializers.Serializer):
     """Input for reversing all or part of a payment entry."""
 
@@ -92,8 +94,11 @@ class PaymentReversalCreateSerializer(serializers.Serializer):
         allow_null=True,
     )
 
+
 class InvoiceLineReadSerializer(serializers.ModelSerializer):
-    """Read-only historical invoice line."""
+    """Read-only historical invoice line with assigned staff."""
+
+    staff_assignments = serializers.SerializerMethodField()
 
     class Meta:
         model = InvoiceLine
@@ -113,9 +118,43 @@ class InvoiceLineReadSerializer(serializers.ModelSerializer):
             'line_total',
             'commission_base_amount',
             'zero_price_reason',
+            'staff_assignments',
             'created_at',
         ]
         read_only_fields = fields
+
+    def get_staff_assignments(self, obj):
+        """
+        Return active staff assigned to this specific service.
+
+        The assignment relationship is tied to VisitService, so staff
+        numbers remain associated with the correct invoice service.
+        """
+
+        visit_service = getattr(obj, 'visit_service', None)
+
+        if not visit_service:
+            return []
+
+        assignments = (
+            visit_service.assignments
+            .filter(is_active=True)
+            .select_related('staff', 'staff__user')
+            .order_by('staff__staff_number')
+        )
+
+        results = []
+
+        for assignment in assignments:
+            staff = assignment.staff
+
+            results.append({
+                'staff_number': staff.staff_number,
+                'staff_name': staff.user.get_full_name().strip(),
+            })
+
+        return results
+
 
 class PaymentEntryReadSerializer(serializers.ModelSerializer):
     """Read-only payment tender details."""
@@ -152,6 +191,7 @@ class PaymentEntryReadSerializer(serializers.ModelSerializer):
         )['total'] or ZERO
 
         return max(obj.amount - reversed_total, ZERO)
+
 
 class PaymentReversalReadSerializer(serializers.ModelSerializer):
     """Read-only financial reversal audit record."""
@@ -190,11 +230,16 @@ class PaymentReversalReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+
 class PaymentCollectionReadSerializer(serializers.ModelSerializer):
     """Read-only collection and combined receipt."""
 
     invoice_number = serializers.CharField(
         source='invoice.invoice_number',
+        read_only=True,
+    )
+    vehicle_registration = serializers.CharField(
+        source='invoice.visit.vehicle.registration_number',
         read_only=True,
     )
     customer_name = serializers.CharField(
@@ -271,6 +316,7 @@ class PaymentCollectionReadSerializer(serializers.ModelSerializer):
             'receipt_number',
             'invoice',
             'invoice_number',
+            'vehicle_registration',
             'customer_name',
             'customer_phone',
             'branch_name',
@@ -294,15 +340,21 @@ class PaymentCollectionReadSerializer(serializers.ModelSerializer):
     def get_payment_summary(self, obj):
         return get_invoice_payment_summary(obj.invoice)
 
+
 class InvoiceReadSerializer(serializers.ModelSerializer):
-    """Read-only invoice with its lines and current payment position."""
+    """Read-only invoice with vehicle, service staff and payment position."""
 
     branch_name = serializers.CharField(
         source='branch.name',
         read_only=True,
     )
     visit_id = serializers.IntegerField(read_only=True)
+    vehicle_registration = serializers.CharField(
+        source='visit.vehicle.registration_number',
+        read_only=True,
+    )
     lines = InvoiceLineReadSerializer(many=True, read_only=True)
+    services_offered = serializers.SerializerMethodField()
     payment_summary = serializers.SerializerMethodField()
 
     class Meta:
@@ -310,6 +362,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'visit_id',
+            'vehicle_registration',
             'branch',
             'branch_name',
             'customer',
@@ -332,6 +385,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
             'vat_amount',
             'total_amount',
             'commission_base_amount',
+            'services_offered',
             'lines',
             'payment_summary',
             'created_by',
@@ -342,8 +396,18 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_services_offered(self, obj):
+        """Return the service names represented by the invoice lines."""
+
+        return list(dict.fromkeys(
+            line.service_name
+            for line in obj.lines.all()
+            if line.service_name
+        ))
+
     def get_payment_summary(self, obj):
         return get_invoice_payment_summary(obj)
+
 
 class CleanerCommissionReadSerializer(serializers.ModelSerializer):
     """Read-only individual cleaner commission record."""
@@ -397,6 +461,7 @@ class CleanerCommissionReadSerializer(serializers.ModelSerializer):
     def get_net_earned_amount(self, obj):
         return obj.earned_amount + self.get_adjustments_total(obj)
 
+
 class CommissionPayoutReadSerializer(serializers.ModelSerializer):
     """Read-only commission payout record."""
 
@@ -436,6 +501,7 @@ class CommissionPayoutReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+
 class CommissionPayoutCreateSerializer(serializers.Serializer):
     """Input for recording a cleaner commission payout."""
 
@@ -473,6 +539,7 @@ class CommissionPayoutCreateSerializer(serializers.Serializer):
 
         return attrs
 
+
 class CommissionAdjustmentReadSerializer(serializers.ModelSerializer):
     """Read-only audited commission adjustment."""
 
@@ -509,6 +576,7 @@ class CommissionAdjustmentReadSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = fields
+
 
 class CommissionAdjustmentCreateSerializer(serializers.Serializer):
     """Input for an audited commission correction."""

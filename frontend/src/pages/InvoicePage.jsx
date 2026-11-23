@@ -8,6 +8,8 @@ import {
   FileText,
   Wallet,
   CheckCircle,
+  Car,
+  ClipboardList,
 } from 'lucide-react'
 
 import {
@@ -97,6 +99,20 @@ function getApiError(error) {
   return 'Payment could not be recorded. Please try again.'
 }
 
+function getInvoiceServices(invoice) {
+  if (Array.isArray(invoice?.services_offered)) {
+    return [...new Set(invoice.services_offered.filter(Boolean))]
+  }
+
+  const lines = Array.isArray(invoice?.lines) ? invoice.lines : []
+
+  return [...new Set(
+    lines
+      .map((line) => line.service_name)
+      .filter(Boolean)
+  )]
+}
+
 // --------------------------------------------------
 // STATUS BADGE
 // --------------------------------------------------
@@ -133,16 +149,20 @@ function InvoiceDetails({ invoice, onClose }) {
   if (!invoice) return null
 
   const lines = Array.isArray(invoice.lines) ? invoice.lines : []
+  const services = getInvoiceServices(invoice)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white shadow-xl">
 
-        <div className="sticky top-0 flex items-center justify-between border-b bg-white px-6 py-4">
+        {/* HEADER */}
+
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">
               Invoice {invoice.invoice_number}
             </h2>
+
             <p className="text-sm text-slate-500">
               {invoice.branch_name || 'Branch not specified'}
             </p>
@@ -160,14 +180,74 @@ function InvoiceDetails({ invoice, onClose }) {
 
         <div className="space-y-6 p-6">
 
+          {/* INVOICE IDENTIFICATION */}
+
+          <div className="rounded-2xl border-2 border-red-100 bg-red-50/50 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <ClipboardList size={19} className="text-red-600" />
+
+              <h3 className="font-bold text-slate-900">
+                Invoice Identification
+              </h3>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+
+              {/* VEHICLE NUMBER */}
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <Car size={16} />
+                  Vehicle No.
+                </div>
+
+                <p className="mt-2 text-2xl font-extrabold uppercase tracking-wider text-slate-900">
+                  {invoice.vehicle_registration || 'Not available'}
+                </p>
+              </div>
+
+              {/* SERVICES OFFERED */}
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <ClipboardList size={16} />
+                  Services Offered
+                </div>
+
+                {services.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {services.map((service, index) => (
+                      <span
+                        key={`${service}-${index}`}
+                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-800"
+                      >
+                        {service}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">
+                    No services recorded.
+                  </p>
+                )}
+              </div>
+
+            </div>
+          </div>
+
+          {/* CUSTOMER AND INVOICE INFORMATION */}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
             <div>
               <p className="text-xs font-semibold uppercase text-slate-500">
                 Customer
               </p>
+
               <p className="mt-1 font-medium text-slate-900">
                 {invoice.customer_name || 'Walk-in customer'}
               </p>
+
               <p className="text-sm text-slate-500">
                 {invoice.customer_phone || 'No phone number'}
               </p>
@@ -177,6 +257,7 @@ function InvoiceDetails({ invoice, onClose }) {
               <p className="text-xs font-semibold uppercase text-slate-500">
                 Invoice status
               </p>
+
               <div className="mt-2">
                 <StatusBadge status={invoice.status} />
               </div>
@@ -186,22 +267,27 @@ function InvoiceDetails({ invoice, onClose }) {
               <p className="text-xs font-semibold uppercase text-slate-500">
                 Issued
               </p>
+
               <p className="mt-1 font-medium text-slate-900">
                 {formatDate(invoice.issued_at || invoice.created_at)}
               </p>
             </div>
+
           </div>
+
+          {/* INVOICE ITEMS */}
 
           <div>
             <h3 className="mb-3 font-semibold text-slate-900">
-              Invoice items
+              Services Provided
             </h3>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full min-w-[700px] text-left text-sm">
+              <table className="w-full min-w-[750px] text-left text-sm">
+
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Service</th>
+                    <th className="px-4 py-3">Service Offered</th>
                     <th className="px-4 py-3 text-right">Qty</th>
                     <th className="px-4 py-3 text-right">Unit price</th>
                     <th className="px-4 py-3 text-right">Discount</th>
@@ -211,29 +297,44 @@ function InvoiceDetails({ invoice, onClose }) {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {line.service_name || 'Service'}
+                  {lines.map((line, index) => (
+                    <tr key={line.id || index} className="align-top">
+
+                      <td className="px-4 py-4">
+                        <p className="font-semibold text-slate-900">
+                          {line.service_name || 'Service'}
+                        </p>
+
+                        {line.service_code && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Code: {line.service_code}
+                          </p>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+
+                      <td className="px-4 py-4 text-right">
                         {line.quantity}
                       </td>
-                      <td className="px-4 py-3 text-right">
+
+                      <td className="px-4 py-4 text-right">
                         {formatMoney(line.unit_price)}
                       </td>
-                      <td className="px-4 py-3 text-right">
+
+                      <td className="px-4 py-4 text-right">
                         {formatMoney(
                           Number(line.bargaining_discount || 0) +
                           Number(line.loyalty_discount || 0)
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+
+                      <td className="px-4 py-4 text-right">
                         {formatMoney(line.vat_amount)}
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold">
+
+                      <td className="px-4 py-4 text-right font-semibold">
                         {formatMoney(line.line_total)}
                       </td>
+
                     </tr>
                   ))}
 
@@ -248,9 +349,12 @@ function InvoiceDetails({ invoice, onClose }) {
                     </tr>
                   )}
                 </tbody>
+
               </table>
             </div>
           </div>
+
+          {/* INVOICE TOTALS */}
 
           <div className="ml-auto max-w-sm space-y-2 rounded-xl bg-slate-50 p-5">
 
@@ -281,10 +385,12 @@ function InvoiceDetails({ invoice, onClose }) {
 
             <div className="flex justify-between text-sm">
               <span className="text-slate-600">Outstanding balance</span>
+
               <span className="font-semibold text-red-600">
                 {formatMoney(getOutstandingBalance(invoice))}
               </span>
             </div>
+
           </div>
         </div>
       </div>
@@ -306,6 +412,7 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
   const [receipt, setReceipt] = useState(null)
 
   const outstanding = getOutstandingBalance(invoice)
+  const services = getInvoiceServices(invoice)
 
   const cash = Number(cashAmount || 0)
   const mpesa = Number(mpesaAmount || 0)
@@ -374,11 +481,12 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
     }
   }
 
-  // Payment success screen
+  // PAYMENT SUCCESS / RECEIPT SCREEN
+
   if (receipt) {
     return (
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
 
           <div className="mb-4 flex justify-center">
             <CheckCircle size={52} className="text-green-600" />
@@ -394,21 +502,55 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
 
           <div className="mt-6 space-y-3 rounded-xl bg-slate-50 p-4">
 
-            <div className="flex justify-between text-sm">
-              <span>Receipt number</span>
-              <strong>{receipt.receipt_number || '—'}</strong>
+            <div className="flex justify-between gap-3 text-sm">
+              <span className="text-slate-500">Receipt number</span>
+              <strong className="text-right">
+                {receipt.receipt_number || '—'}
+              </strong>
             </div>
 
-            <div className="flex justify-between text-sm">
-              <span>Invoice</span>
-              <strong>
+            <div className="flex justify-between gap-3 text-sm">
+              <span className="text-slate-500">Invoice</span>
+              <strong className="text-right">
                 {receipt.invoice_number || invoice.invoice_number}
               </strong>
             </div>
 
-            <div className="flex justify-between text-sm">
-              <span>Amount received</span>
-              <strong>
+            <div className="flex justify-between gap-3 text-sm">
+              <span className="text-slate-500">Vehicle No.</span>
+              <strong className="text-right uppercase">
+                {receipt.vehicle_registration ||
+                  invoice.vehicle_registration ||
+                  'Not available'}
+              </strong>
+            </div>
+
+            <div className="border-t border-slate-200 pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Services Offered
+              </p>
+
+              {services.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {services.map((service, index) => (
+                    <span
+                      key={`${service}-${index}`}
+                      className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700"
+                    >
+                      {service}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No services recorded.
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-between gap-3 border-t border-slate-200 pt-3 text-sm">
+              <span className="text-slate-500">Amount received</span>
+              <strong className="text-right">
                 {formatMoney(receipt.total_received ?? total)}
               </strong>
             </div>
@@ -418,10 +560,13 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
                 key={entry.id || index}
                 className="flex justify-between text-sm"
               >
-                <span>{entry.method_display || entry.method}</span>
+                <span className="text-slate-500">
+                  {entry.method_display || entry.method}
+                </span>
                 <span>{formatMoney(entry.amount)}</span>
               </div>
             ))}
+
           </div>
 
           <button
@@ -436,7 +581,8 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
     )
   }
 
-  // Payment form
+  // PAYMENT FORM
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-xl">
@@ -446,8 +592,13 @@ function MakePaymentModal({ invoice, onClose, onSuccess }) {
             <h2 className="text-xl font-bold text-slate-900">
               Make Payment
             </h2>
+
             <p className="text-sm text-slate-500">
               Invoice {invoice.invoice_number}
+            </p>
+
+            <p className="mt-1 text-xs font-semibold text-slate-600">
+              Vehicle: {invoice.vehicle_registration || 'Not available'}
             </p>
           </div>
 
@@ -611,10 +762,10 @@ export default function InvoicePage() {
   const [status, setStatus] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [paymentInvoice, setPaymentInvoice] = useState(null)
-
   const [detailsLoading, setDetailsLoading] = useState(false)
 
-  // Load invoices
+  // LOAD INVOICES
+
   const loadInvoices = async () => {
     try {
       setLoading(true)
@@ -647,7 +798,8 @@ export default function InvoicePage() {
     loadInvoices()
   }, [])
 
-  // Open invoice details
+  // OPEN INVOICE DETAILS
+
   const openInvoice = async (invoiceId) => {
     try {
       setDetailsLoading(true)
@@ -672,9 +824,7 @@ export default function InvoicePage() {
     0
   )
 
-  // ------------------------------------------------
   // RENDER
-  // ------------------------------------------------
 
   return (
     <div className="space-y-6">
@@ -795,17 +945,19 @@ export default function InvoicePage() {
 
         <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
           <FileText size={18} className="text-red-600" />
+
           <h2 className="font-semibold text-slate-900">
             Invoices
           </h2>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[850px] text-left text-sm">
+          <table className="w-full min-w-[1050px] text-left text-sm">
 
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-5 py-4">Invoice</th>
+                <th className="px-5 py-4">Vehicle No.</th>
                 <th className="px-5 py-4">Customer</th>
                 <th className="px-5 py-4">Branch</th>
                 <th className="px-5 py-4">Date</th>
@@ -820,7 +972,7 @@ export default function InvoicePage() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="8"
                     className="px-5 py-12 text-center text-slate-500"
                   >
                     Loading invoices...
@@ -829,7 +981,7 @@ export default function InvoicePage() {
               ) : invoices.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="8"
                     className="px-5 py-12 text-center text-slate-500"
                   >
                     No invoices found.
@@ -837,9 +989,7 @@ export default function InvoicePage() {
                 </tr>
               ) : (
                 invoices.map((invoice) => {
-
-                  const outstanding =
-                    getOutstandingBalance(invoice)
+                  const outstanding = getOutstandingBalance(invoice)
 
                   const canPay =
                     outstanding > 0 &&
@@ -855,6 +1005,12 @@ export default function InvoicePage() {
 
                       <td className="px-5 py-4 font-semibold text-slate-900">
                         {invoice.invoice_number}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <span className="inline-flex rounded-lg bg-slate-100 px-3 py-1.5 font-bold uppercase tracking-wide text-slate-800">
+                          {invoice.vehicle_registration || '—'}
+                        </span>
                       </td>
 
                       <td className="px-5 py-4">
