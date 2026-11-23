@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
@@ -79,6 +80,9 @@ const normalizeRegistration = (value) =>
 
 const normalizeVehicleInstruction = (checked) =>
   checked ? 'Yes' : ''
+
+const normalizeShift = (shift) =>
+  String(shift || '').toUpperCase()
 
 const getBranchId = (profile) => {
   if (!profile?.branch) return ''
@@ -224,6 +228,12 @@ export default function CheckInPage() {
   const { user } = useAuth()
   const role = user?.role
 
+  // A separate draft is maintained for each logged-in user.
+  const userId = user?.id || user?.user_id || user?.pk
+  const draftKey = userId
+    ? `nev_carwash_checkin_draft_${userId}`
+    : null
+
   // ------------------------------------------------
   // DATA
   // ------------------------------------------------
@@ -274,6 +284,8 @@ export default function CheckInPage() {
   // ------------------------------------------------
 
   const [loading, setLoading] = useState(true)
+  const [draftRestored, setDraftRestored] = useState(false)
+  const [draftSaved, setDraftSaved] = useState(false)
   const [loadingStaff, setLoadingStaff] = useState(false)
   const [loadingPrices, setLoadingPrices] = useState(false)
   const [searching, setSearching] = useState(false)
@@ -292,6 +304,144 @@ export default function CheckInPage() {
   const [showOptionalVehicleFields, setShowOptionalVehicleFields] = useState(false)
   const [showReviewAndSubmit, setShowReviewAndSubmit] = useState(false)
   const [showVisitDetails, setShowVisitDetails] = useState(false)
+
+  // ------------------------------------------------
+  // RESTORE SAVED DRAFT
+  // ------------------------------------------------
+
+  useEffect(() => {
+    if (!userId || !draftKey) return
+
+    try {
+      const savedDraft = localStorage.getItem(draftKey)
+
+      if (savedDraft) {
+        const draft = JSON.parse(savedDraft)
+
+        if (draft.version === 1) {
+          setSearch(draft.search || '')
+          setSelectedVehicle(draft.selectedVehicle || null)
+          setNewVehicle({
+            ...emptyVehicle,
+            ...(draft.newVehicle || {}),
+          })
+          setSelectedCustomerId(draft.selectedCustomerId || '')
+
+          setRegistrationBranchId(
+            draft.registrationBranchId || ''
+          )
+
+          setServicingBranchId(
+            draft.servicingBranchId || ''
+          )
+
+          setPlasticMatCount(draft.plasticMatCount ?? '0')
+          setWoolenMatCount(draft.woolenMatCount ?? '0')
+          setComment(draft.comment || '')
+
+          setSelectedServiceId(draft.selectedServiceId || '')
+          setSelectedServices(
+            Array.isArray(draft.selectedServices)
+              ? draft.selectedServices
+              : []
+          )
+
+          setShowOptionalVehicleFields(
+            Boolean(draft.showOptionalVehicleFields)
+          )
+
+          setShowVisitDetails(Boolean(draft.showVisitDetails))
+          setShowReviewAndSubmit(Boolean(draft.showReviewAndSubmit))
+
+          setShowCategoryForm(Boolean(draft.showCategoryForm))
+          setNewCategoryName(draft.newCategoryName || '')
+
+          setDraftSaved(true)
+        }
+      }
+    } catch (restoreError) {
+      console.error(
+        'Unable to restore check-in draft:',
+        restoreError
+      )
+    } finally {
+      setDraftRestored(true)
+    }
+  }, [userId, draftKey])
+
+  // ------------------------------------------------
+  // AUTOMATICALLY SAVE DRAFT
+  // ------------------------------------------------
+
+  useEffect(() => {
+    if (
+      !userId ||
+      !draftKey ||
+      !draftRestored ||
+      checkInCompleted
+    ) {
+      return
+    }
+
+    const draft = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+
+      search,
+      selectedVehicle,
+      newVehicle,
+      selectedCustomerId,
+
+      registrationBranchId,
+      servicingBranchId,
+
+      plasticMatCount,
+      woolenMatCount,
+      comment,
+
+      selectedServiceId,
+      selectedServices,
+
+      showOptionalVehicleFields,
+      showVisitDetails,
+      showReviewAndSubmit,
+
+      showCategoryForm,
+      newCategoryName,
+    }
+
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+      setDraftSaved(true)
+    } catch (saveError) {
+      console.error(
+        'Unable to save check-in draft:',
+        saveError
+      )
+      setDraftSaved(false)
+    }
+  }, [
+    userId,
+    draftKey,
+    draftRestored,
+    checkInCompleted,
+    search,
+    selectedVehicle,
+    newVehicle,
+    selectedCustomerId,
+    registrationBranchId,
+    servicingBranchId,
+    plasticMatCount,
+    woolenMatCount,
+    comment,
+    selectedServiceId,
+    selectedServices,
+    showOptionalVehicleFields,
+    showVisitDetails,
+    showReviewAndSubmit,
+    showCategoryForm,
+    newCategoryName,
+  ])
 
   // ------------------------------------------------
   // DERIVED VALUES
@@ -568,6 +718,7 @@ export default function CheckInPage() {
           const branchId = getBranchId(profile)
 
           if (branchId) {
+            // The employee's assigned branch is authoritative.
             setRegistrationBranchId(String(branchId))
             setServicingBranchId(String(branchId))
           } else {
@@ -966,14 +1117,36 @@ export default function CheckInPage() {
     )
   }
 
+  // ------------------------------------------------
+  // AUTOMATIC EMPLOYEE SHIFT ASSIGNMENT
+  // ------------------------------------------------
+
   const handleToggleStaff = (serviceId, staffId) => {
+    const id = Number(staffId)
+
+    const staff = branchStaff.find(
+      (person) => Number(person.id) === id
+    )
+
+    if (!staff) return
+
+    const registeredShift = normalizeShift(staff.current_shift)
+
+    if (!['DAY', 'NIGHT'].includes(registeredShift)) {
+      setError(
+        `${getStaffName(staff)} does not have a valid registered shift. Ask an administrator to update the staff profile.`
+      )
+      return
+    }
+
+    setError('')
+
     setSelectedServices((current) =>
       current.map((item) => {
         if (Number(item.service.id) !== Number(serviceId)) {
           return item
         }
 
-        const id = Number(staffId)
         const existing = item.staffAssignments.some(
           (assignment) => Number(assignment.staffId) === id
         )
@@ -988,32 +1161,9 @@ export default function CheckInPage() {
                 ...item.staffAssignments,
                 {
                   staffId: id,
-                  shift: '',
+                  shift: registeredShift,
                 },
               ],
-        }
-      })
-    )
-  }
-
-  const handleAssignmentShiftChange = (
-    serviceId,
-    staffId,
-    shift,
-  ) => {
-    setSelectedServices((current) =>
-      current.map((item) => {
-        if (Number(item.service.id) !== Number(serviceId)) {
-          return item
-        }
-
-        return {
-          ...item,
-          staffAssignments: item.staffAssignments.map((assignment) =>
-            Number(assignment.staffId) === Number(staffId)
-              ? { ...assignment, shift }
-              : assignment
-          ),
         }
       })
     )
@@ -1183,6 +1333,7 @@ export default function CheckInPage() {
       }
     }
 
+    // Validate employee assignments and registered shifts.
     if (canAssignEmployees(role)) {
       if (loadingStaff) {
         setError(
@@ -1205,23 +1356,15 @@ export default function CheckInPage() {
       }
 
       for (const item of selectedServices) {
-        const missingShift = item.staffAssignments.some(
-          (assignment) =>
-            !['DAY', 'NIGHT'].includes(assignment.shift)
-        )
-
-        if (missingShift) {
-          setError(
-            `Choose DAY or NIGHT shift for every assigned employee on ${item.service.name}.`
-          )
-          return
-        }
-
         const expectedRole = getEligibleRole(item.service.category)
 
-        const eligibleIds = branchStaff
-          .filter((staff) => staff.role === expectedRole)
-          .map((staff) => Number(staff.id))
+        const eligibleStaff = branchStaff.filter(
+          (staff) => staff.role === expectedRole
+        )
+
+        const eligibleIds = eligibleStaff.map(
+          (staff) => Number(staff.id)
+        )
 
         const invalidStaff = item.staffAssignments.some(
           (assignment) =>
@@ -1234,9 +1377,35 @@ export default function CheckInPage() {
           )
           return
         }
+
+        const invalidShift = item.staffAssignments.some(
+          (assignment) => {
+            const staff = eligibleStaff.find(
+              (person) =>
+                Number(person.id) === Number(assignment.staffId)
+            )
+
+            const registeredShift = normalizeShift(
+              staff?.current_shift
+            )
+
+            return (
+              !['DAY', 'NIGHT'].includes(registeredShift) ||
+              assignment.shift !== registeredShift
+            )
+          }
+        )
+
+        if (invalidShift) {
+          setError(
+            `The registered shift for one or more assigned employees on ${item.service.name} is missing or has changed. Remove and reassign those employees.`
+          )
+          return
+        }
       }
     }
 
+    // Build submission payload.
     const payload = {
       plastic_mat_count: plasticCount,
       woolen_mat_count: woolenCount,
@@ -1247,7 +1416,7 @@ export default function CheckInPage() {
           staff_assignments: item.staffAssignments.map(
             (assignment) => ({
               staff_id: Number(assignment.staffId),
-              shift: assignment.shift,
+              shift: normalizeShift(assignment.shift),
             })
           ),
         }
@@ -1306,6 +1475,19 @@ export default function CheckInPage() {
 
       setCheckInCompleted(true)
 
+      // Remove the saved draft only after the backend confirms success.
+      if (draftKey) {
+        try {
+          localStorage.removeItem(draftKey)
+          setDraftSaved(false)
+        } catch (storageError) {
+          console.error(
+            'Unable to clear completed check-in draft:',
+            storageError
+          )
+        }
+      }
+
       const vehicleRegistration =
         result.visit?.vehicle_registration ||
         selectedVehicle?.registration_number ||
@@ -1347,6 +1529,7 @@ export default function CheckInPage() {
       setNewCategoryName('')
       setShowOptionalVehicleFields(false)
       setShowReviewAndSubmit(false)
+      setShowVisitDetails(false)
     } catch (submitError) {
       setCheckInCompleted(false)
       setError(getErrorMessage(submitError))
@@ -1379,7 +1562,7 @@ export default function CheckInPage() {
     )
   }
 
-  if (loading) {
+  if (loading || !draftRestored) {
     return (
       <div className="flex items-center justify-center py-20 text-slate-600">
         <Loader2 size={22} className="mr-3 animate-spin" />
@@ -1406,6 +1589,23 @@ export default function CheckInPage() {
 
           <p className="mt-1 text-sm text-slate-500">
             Enter the vehicle, visit details and required services below.
+          </p>
+
+          {/* AUTOSAVE STATUS */}
+
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+            <CheckCircle2
+              size={14}
+              className={
+                draftSaved
+                  ? 'text-green-600'
+                  : 'text-slate-400'
+              }
+            />
+
+            {draftSaved
+              ? 'Draft saved automatically'
+              : 'Your entries are being saved automatically'}
           </p>
         </div>
       </header>
@@ -1531,10 +1731,10 @@ export default function CheckInPage() {
                         <span className="block truncate text-xs text-slate-500">
                           {vehicle.make_model || 'Make/model not recorded'}
                           {vehicle.category_name
-                            ? ` ┬╖ ${vehicle.category_name}`
+                            ? ` · ${vehicle.category_name}`
                             : ''}
                           {vehicle.branch_name
-                            ? ` ┬╖ ${vehicle.branch_name}`
+                            ? ` · ${vehicle.branch_name}`
                             : ''}
                         </span>
                       </span>
@@ -1567,7 +1767,7 @@ export default function CheckInPage() {
                     <p className="text-sm text-slate-600">
                       {selectedVehicle.make_model || 'Make/model not recorded'}
                       {selectedVehicle.category_name
-                        ? ` ┬╖ ${selectedVehicle.category_name}`
+                        ? ` · ${selectedVehicle.category_name}`
                         : ''}
                     </p>
 
@@ -1806,61 +2006,59 @@ export default function CheckInPage() {
 
                 {showOptionalVehicleFields && (
                   <>
-                    {/* VEHICLE INSTRUCTIONS */}
-
                     <div className="mt-4 border-t border-blue-100 pt-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Vehicle instructions
-                  </p>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Vehicle instructions
+                      </p>
 
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={newVehicle.no_plastic_mat}
-                        onChange={(event) =>
-                          updateNewVehicle(
-                            'no_plastic_mat',
-                            event.target.checked
-                          )
-                        }
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      No plastic mat
-                    </label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={newVehicle.no_plastic_mat}
+                            onChange={(event) =>
+                              updateNewVehicle(
+                                'no_plastic_mat',
+                                event.target.checked
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                          No plastic mat
+                        </label>
 
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={newVehicle.no_woolen_mat}
-                        onChange={(event) =>
-                          updateNewVehicle(
-                            'no_woolen_mat',
-                            event.target.checked
-                          )
-                        }
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      No woolen mat
-                    </label>
-                  </div>
+                        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={newVehicle.no_woolen_mat}
+                            onChange={(event) =>
+                              updateNewVehicle(
+                                'no_woolen_mat',
+                                event.target.checked
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                          No woolen mat
+                        </label>
+                      </div>
 
-                  <div className="mt-3">
-                    <Field label="Special concerns (optional)">
-                      <textarea
-                        rows={2}
-                        value={newVehicle.special_concerns}
-                        onChange={(event) =>
-                          updateNewVehicle(
-                            'special_concerns',
-                            event.target.value
-                          )
-                        }
-                        placeholder="Special instructions or concerns about this vehicle"
-                        className={inputClass}
-                      />
-                    </Field>
-                    </div>
+                      <div className="mt-3">
+                        <Field label="Special concerns (optional)">
+                          <textarea
+                            rows={2}
+                            value={newVehicle.special_concerns}
+                            onChange={(event) =>
+                              updateNewVehicle(
+                                'special_concerns',
+                                event.target.value
+                              )
+                            }
+                            placeholder="Special instructions or concerns about this vehicle"
+                            className={inputClass}
+                          />
+                        </Field>
+                      </div>
                     </div>
                   </>
                 )}
@@ -1938,7 +2136,7 @@ export default function CheckInPage() {
                             {availableServices.map((service) => {
                               const info = getServicePriceInfo(service)
 
-                              let priceLabel = info.available
+                              const priceLabel = info.available
                                 ? info.amount === null
                                   ? 'Supervisor enters price'
                                   : formatKES(info.amount)
@@ -1950,7 +2148,7 @@ export default function CheckInPage() {
                                   value={service.id}
                                   disabled={!info.available}
                                 >
-                                  {service.name} ┬╖ {getCategoryLabel(service.category)} ┬╖ {priceLabel}
+                                  {service.name} · {getCategoryLabel(service.category)} · {priceLabel}
                                 </option>
                               )
                             })}
@@ -2043,9 +2241,9 @@ export default function CheckInPage() {
 
                                     <p className="mt-0.5 text-xs text-slate-500">
                                       {getCategoryLabel(service.category)}
-                                      {service.code ? ` ┬╖ ${service.code}` : ''}
+                                      {service.code ? ` · ${service.code}` : ''}
                                       {service.duration_minutes
-                                        ? ` ┬╖ ${service.duration_minutes} minutes`
+                                        ? ` · ${service.duration_minutes} minutes`
                                         : ''}
                                     </p>
 
@@ -2154,7 +2352,7 @@ export default function CheckInPage() {
                                       </p>
 
                                       <p className="mt-0.5 text-xs text-slate-500">
-                                        Select each employee and choose the shift for this assignment.
+                                        Select employees. Their registered shifts are assigned automatically.
                                       </p>
                                     </div>
 
@@ -2170,10 +2368,7 @@ export default function CheckInPage() {
                                     </p>
                                   ) : loadingStaff ? (
                                     <div className="flex items-center gap-2 text-sm text-slate-500">
-                                      <Loader2
-                                        size={16}
-                                        className="animate-spin"
-                                      />
+                                      <Loader2 size={16} className="animate-spin" />
                                       Loading employees...
                                     </div>
                                   ) : !expectedRole ? (
@@ -2185,81 +2380,156 @@ export default function CheckInPage() {
                                       No active {expectedRole === 'CLEANER' ? 'cleaners' : 'detailers'} were found for this branch.
                                     </p>
                                   ) : (
-                                    <div className="space-y-2">
-                                      {eligibleStaff.map((staff) => {
-                                        const assignment =
-                                          item.staffAssignments.find(
-                                            (entry) =>
-                                              Number(entry.staffId) ===
-                                              Number(staff.id)
-                                          )
+                                    <>
+                                      {/* EMPLOYEE DROPDOWN */}
 
-                                        const checked = Boolean(assignment)
+                                      <Field
+                                        label={`Select ${expectedRole === 'CLEANER' ? 'cleaner' : 'detailer'}`}
+                                        hint="Employees without a registered DAY or NIGHT shift cannot be selected."
+                                      >
+                                        <select
+                                          value=""
+                                          onChange={(event) => {
+                                            if (event.target.value) {
+                                              handleToggleStaff(
+                                                service.id,
+                                                event.target.value
+                                              )
+                                            }
+                                          }}
+                                          className={inputClass}
+                                        >
+                                          <option value="">
+                                            Choose an employee...
+                                          </option>
 
-                                        return (
-                                          <div
-                                            key={staff.id}
-                                            className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 transition ${
-                                              checked
-                                                ? 'border-blue-300 bg-blue-50'
-                                                : 'border-slate-200 bg-white'
-                                            }`}
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={checked}
-                                              onChange={() =>
-                                                handleToggleStaff(
-                                                  service.id,
-                                                  staff.id
+                                          {eligibleStaff
+                                            .filter(
+                                              (staff) =>
+                                                !item.staffAssignments.some(
+                                                  (assignment) =>
+                                                    Number(assignment.staffId) ===
+                                                    Number(staff.id)
                                                 )
-                                              }
-                                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                                            )
+                                            .map((staff) => {
+                                              const registeredShift =
+                                                normalizeShift(staff.current_shift)
+
+                                              const validShift = [
+                                                'DAY',
+                                                'NIGHT',
+                                              ].includes(registeredShift)
+
+                                              return (
+                                                <option
+                                                  key={staff.id}
+                                                  value={staff.id}
+                                                  disabled={!validShift}
+                                                >
+                                                  {getStaffName(staff)} - {staff.staff_number || 'No staff number'} · {validShift
+                                                    ? registeredShift
+                                                    : 'Shift not configured'}
+                                                </option>
+                                              )
+                                            })}
+                                        </select>
+                                      </Field>
+
+                                      {/* SELECTED EMPLOYEES */}
+
+                                      <div className="mt-3 space-y-2">
+                                        {item.staffAssignments.length === 0 ? (
+                                          <div className="rounded-lg border border-dashed border-slate-300 p-4 text-center">
+                                            <Users
+                                              size={22}
+                                              className="mx-auto text-slate-400"
                                             />
 
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate text-sm font-medium text-slate-800">
-                                                {getStaffName(staff)}
-                                              </span>
+                                            <p className="mt-2 text-sm text-slate-500">
+                                              No employees assigned yet.
+                                            </p>
 
-                                              <span className="mt-0.5 block text-xs text-slate-500">
-                                                {staff.staff_number || 'No staff number'}
-                                                {staff.current_shift
-                                                  ? ` ┬╖ Current shift: ${staff.current_shift}`
-                                                  : ''}
-                                              </span>
-                                            </span>
-
-                                            {checked && (
-                                              <div className="w-full sm:w-36">
-                                                <select
-                                                  value={assignment.shift}
-                                                  onChange={(event) =>
-                                                    handleAssignmentShiftChange(
-                                                      service.id,
-                                                      staff.id,
-                                                      event.target.value
-                                                    )
-                                                  }
-                                                  className={inputClass}
-                                                  aria-label={`Shift for ${getStaffName(staff)}`}
-                                                >
-                                                  <option value="">
-                                                    Select shift
-                                                  </option>
-                                                  <option value="DAY">
-                                                    DAY
-                                                  </option>
-                                                  <option value="NIGHT">
-                                                    NIGHT
-                                                  </option>
-                                                </select>
-                                              </div>
-                                            )}
+                                            <p className="mt-1 text-xs text-slate-400">
+                                              Select employees using the dropdown above.
+                                            </p>
                                           </div>
-                                        )
-                                      })}
-                                    </div>
+                                        ) : (
+                                          item.staffAssignments.map(
+                                            (assignment) => {
+                                              const staff = eligibleStaff.find(
+                                                (person) =>
+                                                  Number(person.id) ===
+                                                  Number(assignment.staffId)
+                                              )
+
+                                              if (!staff) return null
+
+                                              const registeredShift =
+                                                normalizeShift(staff.current_shift)
+
+                                              return (
+                                                <div
+                                                  key={staff.id}
+                                                  className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3"
+                                                >
+                                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                                                    <Users size={17} />
+                                                  </div>
+
+                                                  <div className="min-w-0 flex-1">
+                                                    <p className="truncate text-sm font-semibold text-slate-800">
+                                                      {getStaffName(staff)}
+                                                    </p>
+
+                                                    <p className="mt-0.5 text-xs text-slate-500">
+                                                      {staff.staff_number || 'No staff number'}
+                                                    </p>
+                                                  </div>
+
+                                                  <span
+                                                    className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                                                      registeredShift === 'DAY'
+                                                        ? 'bg-amber-100 text-amber-800'
+                                                        : registeredShift === 'NIGHT'
+                                                          ? 'bg-indigo-100 text-indigo-800'
+                                                          : 'bg-red-100 text-red-800'
+                                                    }`}
+                                                  >
+                                                    {registeredShift || 'Shift not configured'}
+                                                  </span>
+
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleToggleStaff(
+                                                        service.id,
+                                                        staff.id
+                                                      )
+                                                    }
+                                                    title="Remove employee"
+                                                    aria-label={`Remove ${getStaffName(staff)}`}
+                                                    className="rounded-lg border border-red-200 bg-white p-2 text-red-600 transition hover:bg-red-50"
+                                                  >
+                                                    <Trash2 size={16} />
+                                                  </button>
+                                                </div>
+                                              )
+                                            }
+                                          )
+                                        )}
+                                      </div>
+
+                                      {item.staffAssignments.length > 0 && (
+                                        <p className="mt-2 text-xs text-green-700">
+                                          <CheckCircle2
+                                            size={13}
+                                            className="mr-1 inline"
+                                          />
+                                          {item.staffAssignments.length} employee(s) assigned with their registered shifts.
+                                        </p>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )}
@@ -2341,51 +2611,51 @@ export default function CheckInPage() {
 
           {showVisitDetails && (
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <SectionHeading
-              icon={ClipboardList}
-              title="2. Visit details"
-              description="Record the mats received and any instructions for this visit."
-            />
+              <SectionHeading
+                icon={ClipboardList}
+                title="2. Visit details"
+                description="Record the mats received and any instructions for this visit."
+              />
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Plastic mats received">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={plasticMatCount}
-                  onChange={(event) =>
-                    setPlasticMatCount(event.target.value)
-                  }
-                  className={inputClass}
-                />
-              </Field>
-
-              <Field label="Woolen mats received">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={woolenMatCount}
-                  onChange={(event) =>
-                    setWoolenMatCount(event.target.value)
-                  }
-                  className={inputClass}
-                />
-              </Field>
-
-              <div className="sm:col-span-2">
-                <Field label="Visit comments (optional)">
-                  <textarea
-                    rows={3}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                    placeholder="Any additional instructions for this visit"
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Plastic mats received">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={plasticMatCount}
+                    onChange={(event) =>
+                      setPlasticMatCount(event.target.value)
+                    }
                     className={inputClass}
                   />
                 </Field>
+
+                <Field label="Woolen mats received">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={woolenMatCount}
+                    onChange={(event) =>
+                      setWoolenMatCount(event.target.value)
+                    }
+                    className={inputClass}
+                  />
+                </Field>
+
+                <div className="sm:col-span-2">
+                  <Field label="Visit comments (optional)">
+                    <textarea
+                      rows={3}
+                      value={comment}
+                      onChange={(event) => setComment(event.target.value)}
+                      placeholder="Any additional instructions for this visit"
+                      className={inputClass}
+                    />
+                  </Field>
+                </div>
               </div>
-            </div>
             </section>
           )}
 
@@ -2412,50 +2682,49 @@ export default function CheckInPage() {
 
           {showReviewAndSubmit && (
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <SectionHeading
-              icon={CheckCircle2}
-              title="4. Review and submit"
-              description="Check the details before saving the vehicle visit."
-            />
+              <SectionHeading
+                icon={CheckCircle2}
+                title="4. Review and submit"
+                description="Check the details before saving the vehicle visit."
+              />
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">Vehicle</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Vehicle</p>
 
-                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
-                  {selectedVehicle
-                    ? selectedVehicle.registration_number
-                    : showRegistrationForm
-                      ? newVehicle.registration_number || 'New vehicle'
-                      : 'Not selected'}
-                </p>
+                  <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                    {selectedVehicle
+                      ? selectedVehicle.registration_number
+                      : showRegistrationForm
+                        ? newVehicle.registration_number || 'New vehicle'
+                        : 'Not selected'}
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Services</p>
+
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {selectedServices.length}
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Assignments</p>
+
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {selectedAssignmentCount}
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Servicing branch</p>
+
+                  <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                    {selectedBranchName || 'Not selected'}
+                  </p>
+                </div>
               </div>
-
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">Services</p>
-
-                <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {selectedServices.length}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">Assignments</p>
-
-                <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {selectedAssignmentCount}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">Servicing branch</p>
-
-                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
-                  {selectedBranchName || 'Not selected'}
-                </p>
-              </div>
-            </div>
-
             </section>
           )}
 
@@ -2483,8 +2752,9 @@ export default function CheckInPage() {
                 </>
               )}
             </button>
+
             <p className="mt-2 text-center text-xs text-slate-500">
-              All entered details are submitted together. The form resets only after a successful response.
+              Your entries are saved automatically. The saved draft is cleared only after a successful check-in.
             </p>
           </div>
         </form>
@@ -2520,4 +2790,3 @@ export default function CheckInPage() {
     </div>
   )
 }
-//This is the latest checkin
