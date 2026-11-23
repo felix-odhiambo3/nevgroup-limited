@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
@@ -290,6 +289,9 @@ export default function CheckInPage() {
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [checkInCompleted, setCheckInCompleted] = useState(false)
+  const [showOptionalVehicleFields, setShowOptionalVehicleFields] = useState(false)
+  const [showReviewAndSubmit, setShowReviewAndSubmit] = useState(false)
+  const [showVisitDetails, setShowVisitDetails] = useState(false)
 
   // ------------------------------------------------
   // DERIVED VALUES
@@ -1343,6 +1345,8 @@ export default function CheckInPage() {
 
       setShowCategoryForm(false)
       setNewCategoryName('')
+      setShowOptionalVehicleFields(false)
+      setShowReviewAndSubmit(false)
     } catch (submitError) {
       setCheckInCompleted(false)
       setError(getErrorMessage(submitError))
@@ -1527,10 +1531,10 @@ export default function CheckInPage() {
                         <span className="block truncate text-xs text-slate-500">
                           {vehicle.make_model || 'Make/model not recorded'}
                           {vehicle.category_name
-                            ? ` · ${vehicle.category_name}`
+                            ? ` ┬╖ ${vehicle.category_name}`
                             : ''}
                           {vehicle.branch_name
-                            ? ` · ${vehicle.branch_name}`
+                            ? ` ┬╖ ${vehicle.branch_name}`
                             : ''}
                         </span>
                       </span>
@@ -1563,7 +1567,7 @@ export default function CheckInPage() {
                     <p className="text-sm text-slate-600">
                       {selectedVehicle.make_model || 'Make/model not recorded'}
                       {selectedVehicle.category_name
-                        ? ` · ${selectedVehicle.category_name}`
+                        ? ` ┬╖ ${selectedVehicle.category_name}`
                         : ''}
                     </p>
 
@@ -1685,7 +1689,7 @@ export default function CheckInPage() {
                     )}
                   </Field>
 
-                  {canViewCustomers(role) && (
+                  {showOptionalVehicleFields && canViewCustomers(role) && (
                     <Field label="Customer (optional)">
                       <select
                         value={selectedCustomerId}
@@ -1745,6 +1749,22 @@ export default function CheckInPage() {
                   )}
                 </div>
 
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowOptionalVehicleFields((current) => !current)
+                    }
+                    aria-expanded={showOptionalVehicleFields}
+                    className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+                  >
+                    <Plus size={16} />
+                    {showOptionalVehicleFields
+                      ? 'Hide optional details'
+                      : 'Add optional details'}
+                  </button>
+                </div>
+
                 {showCategoryForm && canCreateCategory(role) && (
                   <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3">
                     <Field label="New category name" required>
@@ -1784,9 +1804,11 @@ export default function CheckInPage() {
                   </div>
                 )}
 
-                {/* VEHICLE INSTRUCTIONS */}
+                {showOptionalVehicleFields && (
+                  <>
+                    {/* VEHICLE INSTRUCTIONS */}
 
-                <div className="mt-4 border-t border-blue-100 pt-3">
+                    <div className="mt-4 border-t border-blue-100 pt-3">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Vehicle instructions
                   </p>
@@ -1838,8 +1860,10 @@ export default function CheckInPage() {
                         className={inputClass}
                       />
                     </Field>
-                  </div>
-                </div>
+                    </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1926,7 +1950,7 @@ export default function CheckInPage() {
                                   value={service.id}
                                   disabled={!info.available}
                                 >
-                                  {service.name} · {getCategoryLabel(service.category)} · {priceLabel}
+                                  {service.name} ┬╖ {getCategoryLabel(service.category)} ┬╖ {priceLabel}
                                 </option>
                               )
                             })}
@@ -2019,9 +2043,9 @@ export default function CheckInPage() {
 
                                     <p className="mt-0.5 text-xs text-slate-500">
                                       {getCategoryLabel(service.category)}
-                                      {service.code ? ` · ${service.code}` : ''}
+                                      {service.code ? ` ┬╖ ${service.code}` : ''}
                                       {service.duration_minutes
-                                        ? ` · ${service.duration_minutes} minutes`
+                                        ? ` ┬╖ ${service.duration_minutes} minutes`
                                         : ''}
                                     </p>
 
@@ -2201,7 +2225,7 @@ export default function CheckInPage() {
                                               <span className="mt-0.5 block text-xs text-slate-500">
                                                 {staff.staff_number || 'No staff number'}
                                                 {staff.current_shift
-                                                  ? ` · Current shift: ${staff.current_shift}`
+                                                  ? ` ┬╖ Current shift: ${staff.current_shift}`
                                                   : ''}
                                               </span>
                                             </span>
@@ -2300,7 +2324,23 @@ export default function CheckInPage() {
 
           {/* VISIT DETAILS */}
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <button
+            type="button"
+            onClick={() => setShowVisitDetails((current) => !current)}
+            aria-expanded={showVisitDetails}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
+          >
+            <Plus
+              size={18}
+              className={`transition-transform ${
+                showVisitDetails ? 'rotate-45' : ''
+              }`}
+            />
+            {showVisitDetails ? 'Hide visit details' : 'Add visit details'}
+          </button>
+
+          {showVisitDetails && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <SectionHeading
               icon={ClipboardList}
               title="2. Visit details"
@@ -2346,11 +2386,32 @@ export default function CheckInPage() {
                 </Field>
               </div>
             </div>
-          </section>
+            </section>
+          )}
 
           {/* REVIEW AND SUBMIT */}
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <button
+            type="button"
+            onClick={() =>
+              setShowReviewAndSubmit((current) => !current)
+            }
+            aria-expanded={showReviewAndSubmit}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
+          >
+            <Plus
+              size={18}
+              className={`transition-transform ${
+                showReviewAndSubmit ? 'rotate-45' : ''
+              }`}
+            />
+            {showReviewAndSubmit
+              ? 'Hide review and submit'
+              : 'Review and submit'}
+          </button>
+
+          {showReviewAndSubmit && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <SectionHeading
               icon={CheckCircle2}
               title="4. Review and submit"
@@ -2395,6 +2456,10 @@ export default function CheckInPage() {
               </div>
             </div>
 
+            </section>
+          )}
+
+          <div className="pt-1">
             <button
               type="submit"
               disabled={
@@ -2402,7 +2467,7 @@ export default function CheckInPage() {
                 (canAssignEmployees(role) && loadingStaff) ||
                 (canAddServices(role) && loadingPrices)
               }
-              className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? (
                 <>
@@ -2418,11 +2483,10 @@ export default function CheckInPage() {
                 </>
               )}
             </button>
-
             <p className="mt-2 text-center text-xs text-slate-500">
               All entered details are submitted together. The form resets only after a successful response.
             </p>
-          </section>
+          </div>
         </form>
       )}
 
