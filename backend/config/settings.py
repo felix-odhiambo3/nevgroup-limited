@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
 
+    # Existing NEV CARWASH applications
     "accounts",
     "branches",
     "staff",
@@ -60,6 +61,10 @@ INSTALLED_APPS = [
     "visits",
     "attendance.apps.AttendanceConfig",
     "payments",
+
+    # New applications
+    "expenses.apps.ExpensesConfig",
+    "analytics.apps.AnalyticsConfig",
 ]
 
 
